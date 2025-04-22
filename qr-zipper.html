@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advanced QR Code Zipper & Unzipper</title>
+  <!-- External Libraries -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <!-- CSS File -->
+  <link rel="stylesheet" href="qr-zipper.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Advanced QR Code Zipper & Unzipper</h1>
+      <p class="subtitle">Encode, decode, and transfer data with QR codes</p>
+    </header>
+    
+    <div class="tabs">
+      <div class="tab active" data-tab="encode">Encode</div>
+      <div class="tab" data-tab="decode">Decode</div>
+      <div class="tab" data-tab="p2p">P2P Transfer</div>
+      <div class="tab" data-tab="info">Information</div>
+    </div>
+    
+    <!-- Encode Tab -->
+    <div class="tab-content active" id="encode-content">
+      <div class="info-box">
+        <p class="info-title">Create QR Code</p>
+        <p>Enter text, paste content, or upload a file to convert to QR code. Add optional password for security.</p>
+      </div>
+      
+      <div class="file-drop-area" id="file-drop">
+        <p>Drag & drop a text file here or</p>
+        <button class="btn btn-secondary" id="file-select-btn">Select File</button>
+        <input type="file" id="file-input" class="file-input" accept=".txt,.json,.csv,.md,.html,.css,.js">
+      </div>
+      
+      <div class="form-group">
+        <label for="encode-input">Text to Encode:</label>
+        <textarea id="encode-input" placeholder="Enter text to encode..."></textarea>
+        <div id="file-info"></div>
+      </div>
+      
+      <div class="form-group">
+        <label for="encode-password">Password (Optional):</label>
+        <input type="password" id="encode-password" placeholder="Leave blank for no password">
+      </div>
+      
+      <div class="info-box">
+        <p class="info-title">Data Capacity</p>
+        <div class="progress-container">
+          <div class="progress-bar" id="encode-progress"></div>
+        </div>
+        <div id="capacity-info">0 / 2953 bytes (0%)</div>
+      </div>
+      
+      <div class="button-group">
+        <button class="btn btn-primary" id="generate-qr">Generate QR Code</button>
+        <button class="btn btn-danger" id="clear-encode">Clear</button>
+      </div>
+      
+      <div class="result-container">
+        <div id="qrcode"></div>
+        <div id="encode-message" class="message"></div>
+        <button class="btn btn-secondary" id="download-qr" style="display: none;">Download QR Code</button>
+      </div>
+    </div>
+    
+    <!-- Decode Tab -->
+    <div class="tab-content" id="decode-content">
+      <div class="info-box">
+        <p class="info-title">Scan QR Code</p>
+        <p>Upload an image or use your camera to scan a QR code. Enter the password if required.</p>
+      </div>
+      
+      <div class="camera-select-wrapper" id="camera-select-container" style="display: none;">
+        <label>Select Camera:</label>
+        <div id="camera-options" class="camera-options"></div>
+      </div>
+      
+      <div class="camera-container">
+        <video id="video" style="display: none;" autoplay playsinline></video>
+        <div class="button-group">
+          <button class="btn btn-primary" id="start-camera">Start Camera</button>
+          <button class="btn btn-danger" id="stop-camera" style="display: none;">Stop Camera</button>
+          <button class="btn btn-secondary" id="take-photo" style="display: none;">Take Photo</button>
+        </div>
+      </div>
+      
+      <div class="file-drop-area" id="qr-drop">
+        <p>Drag & drop a QR code image here or</p>
+        <button class="btn btn-secondary" id="qr-select-btn">Select Image</button>
+        <input type="file" id="qr-input" class="file-input" accept="image/*">
+        <div id="image-preview" class="image-preview"></div>
+      </div>
+      
+      <div class="form-group">
+        <label for="decode-password">Password (if required):</label>
+        <input type="password" id="decode-password" placeholder="Enter password if QR code is encrypted">
+      </div>
+      
+      <div class="button-group">
+        <button class="btn btn-primary" id="decode-qr">Decode QR Code</button>
+        <button class="btn btn-danger" id="clear-decode">Clear</button>
+      </div>
+      
+      <div class="form-group">
+        <label for="decode-output">Decoded Data:</label>
+        <textarea id="decode-output" placeholder="Decoded data will appear here..." readonly></textarea>
+      </div>
+      
+      <div id="decode-message" class="message"></div>
+      <button class="btn btn-secondary" id="download-decoded" style="display: none;">Save as Text File</button>
+      
+      <button class="debug-toggle" id="debug-toggle">Show/Hide Debug Info</button>
+      <div class="debug-info" id="debug-info"></div>
+    </div>
+    
+    <!-- P2P Transfer Tab -->
+    <div class="tab-content" id="p2p-content">
+      <div class="info-box">
+        <p class="info-title">P2P File Transfer via QR Codes</p>
+        <p>Transfer files between devices using QR codes. One device displays codes (SEND) while the other scans them (RECEIVE).</p>
+      </div>
+      
+      <div class="p2p-mode-selector">
+        <button class="btn btn-primary p2p-mode-btn active" data-mode="send">SEND</button>
+        <button class="btn btn-secondary p2p-mode-btn" data-mode="receive">RECEIVE</button>
+      </div>
+      
+      <!-- SEND Panel -->
+      <div class="p2p-panel active" id="send-panel">
+        <div class="file-drop-area" id="p2p-file-drop">
+          <p>Drag & drop a text file here or</p>
+          <button class="btn btn-secondary" id="p2p-file-select-btn">Select File</button>
+          <input type="file" id="p2p-file-input" class="file-input" accept=".txt,.json,.csv,.md,.html,.css,.js">
+        </div>
+        
+        <div class="form-group">
+          <label for="p2p-input">Text to Transfer:</label>
+          <textarea id="p2p-input" placeholder="Enter text to transfer..."></textarea>
+          <div id="p2p-file-info"></div>
+        </div>
+        
+        <div class="form-group">
+          <label for="p2p-password">Password (Optional):</label>
+          <input type="password" id="p2p-password" placeholder="Leave blank for no password">
+        </div>
+        
+        <div class="form-group">
+          <label for="display-interval">Display Interval (seconds): <span id="interval-value">3s</span></label>
+          <input type="range" id="display-interval" min="1" max="10" value="3" step="0.5">
+        </div>
+        
+        <div class="button-group">
+          <button class="btn btn-primary" id="start-transfer">Start Transfer</button>
+          <button class="btn btn-danger" id="stop-transfer" style="display: none;">Stop Transfer</button>
+          <button class="btn btn-secondary" id="manual-nav" style="display: none;">Manual Navigation</button>
+        </div>
+        
+        <div class="info-box">
+          <p class="info-title">Transfer Status</p>
+          <div class="progress-container">
+            <div class="progress-bar" id="send-progress"></div>
+          </div>
+          <div id="send-status">Ready to send</div>
+        </div>
+        
+        <div class="result-container">
+          <div id="p2p-qrcode"></div>
+          
+          <div class="p2p-navigation" style="display: none;">
+            <button class="btn btn-secondary" id="prev-chunk">&lt; Previous</button>
+            <span id="chunk-counter">0 / 0</span>
+            <button class="btn btn-secondary" id="next-chunk">Next &gt;</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- RECEIVE Panel -->
+      <div class="p2p-panel" id="receive-panel">
+        <div class="camera-select-wrapper" id="p2p-camera-select-container" style="display: none;">
+          <label>Select Camera:</label>
+          <div id="p2p-camera-options" class="camera-options"></div>
+        </div>
+        
+        <div class="camera-container">
+          <video id="p2p-video" style="display: none;" autoplay playsinline></video>
+        </div>
+        
+        <div class="form-group">
+          <label for="p2p-receive-password">Password (if required):</label>
+          <input type="password" id="p2p-receive-password" placeholder="Enter password if data is encrypted">
+        </div>
+        
+        <div class="button-group">
+          <button class="btn btn-primary" id="start-receiving">Start Receiving</button>
+          <button class="btn btn-danger" id="stop-receiving" style="display: none;">Stop Receiving</button>
+        </div>
+        
+        <div class="info-box">
+          <p class="info-title">Reception Status</p>
+          <div class="progress-container">
+            <div class="progress-bar" id="receive-progress"></div>
+          </div>
+          <div id="receive-status">Ready to receive</div>
+          <div id="chunk-status"></div>
+        </div>
+        
+        <div class="form-group">
+          <label for="received-data">Received Data:</label>
+          <textarea id="received-data" placeholder="Received data will appear here..." readonly></textarea>
+        </div>
+        
+        <button class="btn btn-secondary" id="download-received" style="display: none;">Save as Text File</button>
+      </div>
+    </div>
+    
+    <!-- Information Tab -->
+    <div class="tab-content" id="info-content">
+      <div class="info-box">
+        <p class="info-title">About QR Code Zipper & Unzipper</p>
+        <p>This tool allows you to encode data into QR codes and decode them back. Additional features include password protection, large file chunking, and peer-to-peer transfer capabilities.</p>
+      </div>
+      
+      <h3>QR Code Capacity</h3>
+      <p>QR codes have different versions (sizes) with different data capacities:</p>
+      <ul>
+        <li><strong>Version 40 (largest):</strong> Up to 4,296 alphanumeric characters or 2,953 bytes of binary data</li>
+        <li><strong>Version 25:</strong> Up to 1,556 alphanumeric characters or 1,069 bytes of binary data</li>
+        <li><strong>Version 10:</strong> Up to 271 alphanumeric characters or 186 bytes of binary data</li>
+        <li><strong>Version 1 (smallest):</strong> Up to 25 alphanumeric characters or 17 bytes of binary data</li>
+      </ul>
+      
+      <h3>Security Features</h3>
+      <p>This application includes several security features:</p>
+      <ul>
+        <li><strong>Password Protection:</strong> AES encryption for your data</li>
+        <li><strong>MD5 Verification:</strong> Ensures data integrity during multi-part transfers</li>
+        <li><strong>Local Processing:</strong> All operations happen in your browser, no data is sent to servers</li>
+      </ul>
+      
+      <h3>Chunking and P2P Features</h3>
+      <p>For files larger than a single QR code can handle:</p>
+      <ul>
+        <li>Data is automatically split into multiple chunks</li>
+        <li>Each chunk includes position information and an MD5 checksum</li>
+        <li>Use the P2P Transfer mode to transfer large files between devices</li>
+      </ul>
+      
+      <h3>Tips for Best Results</h3>
+      <ul>
+        <li>For P2P transfers, ensure good lighting and a stable camera position</li>
+        <li>Adjust the display interval based on your camera scanning speed</li>
+        <li>Keep passwords simple but secure to avoid typing errors</li>
+        <li>When scanning, ensure the QR code is fully visible in the camera</li>
+        <li>For large files, use a slower display interval to ensure reliable scanning</li>
+      </ul>
+    </div>
+  </div>
+  
+  <footer>
+    <p>Advanced QR Code Zipper & Unzipper | Created 2025</p>
+  </footer>
+
+  <!-- JavaScript File -->
+  <script src="qr-zipper.js"></script>
+</body>
+</html>
