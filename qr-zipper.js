@@ -527,20 +527,20 @@ function setupEventListeners() {
       qrPopupWindow.close();
     }
     
-    // Get the QR code image from floating container
-    const qrImg = floatingQrContent.querySelector('img');
-    if (!qrImg) {
-      log('No QR code image found to open in new window');
+    // Get the QR display content from the main QR container
+    const qrDisplay = p2pQrcodeContainer ? p2pQrcodeContainer.innerHTML : '';
+    
+    if (!qrDisplay) {
+      log('No QR code found to open in new window');
       return;
     }
     
-    // Get the image source (data URL)
-    const qrSrc = qrImg.src;
+    // Get the counter text
     const counter = floatingQrCounter.textContent;
     
     // Open a new window with the QR window HTML
     qrPopupWindow = window.open(
-      `qr-window.html?qr=${encodeURIComponent(qrSrc)}&counter=${encodeURIComponent(counter)}`,
+      `qr-window.html?html=${encodeURIComponent(qrDisplay)}&counter=${encodeURIComponent(counter)}`,
       'QRCodeWindow',
       'width=600,height=600,resizable=yes,scrollbars=no,toolbar=no,menubar=no,status=no,location=no'
     );
@@ -558,12 +558,11 @@ function setupEventListeners() {
   // Update QR in popup window if it exists
   function updateQrInPopup() {
     if (qrPopupWindow && !qrPopupWindow.closed) {
-      const qrImg = floatingQrContent.querySelector('img');
-      if (qrImg) {
-        // Send message to update the QR code
+      if (p2pQrcodeContainer) {
+        // Send message to update the QR code display
         qrPopupWindow.postMessage({
           type: 'updateQR',
-          qr: qrImg.src,
+          html: p2pQrcodeContainer.innerHTML,
           counter: floatingQrCounter.textContent
         }, '*');
         
@@ -2072,58 +2071,19 @@ function displayCurrentChunk() {
       floatingQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
       floatingQrContainer.style.display = 'block';
       
-      // For fallback QR code, we need to create a data URL for the popup
+      // For fallback QR code, update the popup if it's open
       if (qrPopupWindow && !qrPopupWindow.closed) {
         try {
-          // Convert the fallback QR div to an image using html2canvas or a similar approach
-          // For simplicity, we'll just use the text content as a placeholder
-          const fallbackText = fallbackQr.textContent || 'Fallback QR Code';
-          
-          // Create a canvas element
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          canvas.width = 300;
-          canvas.height = 300;
-          
-          // Fill with white background
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          
-          // Add black text
-          ctx.fillStyle = '#000000';
-          ctx.font = '14px monospace';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          
-          // Split text into lines for better readability
-          const words = fallbackText.split(' ');
-          let line = '';
-          let y = 100;
-          for (let i = 0; i < words.length; i++) {
-            const testLine = line + words[i] + ' ';
-            if (testLine.length > 40) {
-              ctx.fillText(line, canvas.width / 2, y);
-              line = words[i] + ' ';
-              y += 20;
-            } else {
-              line = testLine;
-            }
-          }
-          ctx.fillText(line, canvas.width / 2, y);
-          
-          // Get data URL from canvas
-          const dataUrl = canvas.toDataURL('image/png');
-          
-          // Send to popup window
+          // Send the fallback QR HTML directly to the popup
           qrPopupWindow.postMessage({
             type: 'updateQR',
-            qr: dataUrl,
+            html: p2pQrcodeContainer.innerHTML,
             counter: `${currentChunkIndex + 1} / ${p2pChunks.length} (Fallback Mode)`
           }, '*');
           
-          log('Sent fallback QR to popup window');
+          log('Sent fallback QR HTML to popup window');
         } catch (err) {
-          log('Error creating fallback QR for popup', { error: err.message });
+          log('Error updating popup with fallback QR', { error: err.message });
         }
       }
     }

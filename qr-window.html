@@ -3,84 +3,183 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QR Code Display</title>
+  <title>QR Transfer Display</title>
   <style>
     * {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
+      font-family: 'Courier New', monospace;
     }
     
     body {
+      background-color: #000;
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      height: 100vh;
-      width: 100vw;
-      background-color: #fff;
+      min-height: 100vh;
+      padding: 10px;
       overflow: hidden;
+      color: #00ff00;
     }
     
     #qr-container {
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
       align-items: center;
+      justify-content: center;
       width: 100%;
-      height: 100%;
-      max-width: 100vmin;
-      max-height: 100vmin;
+      max-width: 100%;
+      max-height: 90vh;
+    }
+    
+    .qr-title {
+      color: #000;
+      font-weight: bold;
+      font-size: 18px;
+      margin-bottom: 10px;
+    }
+    
+    .qr-counter {
+      color: #000;
+      font-size: 16px;
+      margin: 10px 0;
     }
     
     #qr-image {
-      width: 100%;
-      height: 100%;
-      object-fit: contain;
+      max-width: 100%;
+      max-height: 70vh;
+      width: auto;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+    
+    .close-btn {
+      margin-top: 20px;
+      padding: 8px 16px;
+      background-color: #006600;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background-color 0.2s;
+    }
+    
+    .close-btn:hover {
+      background-color: #008800;
+    }
+    
+    @media (orientation: landscape) {
+      #qr-container {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+      
+      #qr-content {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      
+      .qr-title, .qr-counter {
+        width: 100%;
+      }
+    }
+    
+    @media screen and (max-width: 600px) {
+      #qr-container {
+        padding: 10px;
+      }
+      
+      .qr-title {
+        font-size: 16px;
+      }
+      
+      .qr-counter {
+        font-size: 14px;
+      }
     }
     
     .info {
-      position: fixed;
-      bottom: 10px;
-      left: 0;
       width: 100%;
       text-align: center;
-      padding: 5px;
-      font-family: monospace;
+      margin-top: 15px;
       font-size: 14px;
-      color: #333;
+    }
+    
+    /* Auto-rotate instructions */
+    .rotate-device {
+      display: none;
+      position: fixed;
+      top: 5px;
+      right: 5px;
+      background-color: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    
+    @media (orientation: portrait) and (max-width: 768px) {
+      .rotate-device {
+        display: block;
+      }
     }
   </style>
 </head>
 <body>
+  <div class="rotate-device">For better viewing, rotate your device to landscape</div>
+  
   <div id="qr-container">
-    <!-- QR code will be inserted here -->
+    <div class="qr-title">QR Code Transfer</div>
+    <div id="qr-content">
+      <!-- QR code will be inserted here -->
+    </div>
+    <div class="qr-counter" id="qr-counter">Loading...</div>
+    <button class="close-btn" onclick="window.close()">Close Window</button>
   </div>
-  <div class="info" id="qr-info">Loading QR code...</div>
+  
+  <div class="info">This window will automatically update as new QR codes are displayed</div>
 
   <script>
     // Get the container element
-    const qrContainer = document.getElementById('qr-container');
-    const qrInfo = document.getElementById('qr-info');
+    const qrContent = document.getElementById('qr-content');
+    const qrCounter = document.getElementById('qr-counter');
     
     // Function to update QR code
     function updateQR() {
       // Get data from the URL parameters
       const urlParams = new URLSearchParams(window.location.search);
-      const imageData = urlParams.get('qr');
+      const html = urlParams.get('html');
       const counter = urlParams.get('counter');
       
-      if (imageData) {
-        // Create image element
-        qrContainer.innerHTML = `<img id="qr-image" src="${imageData}" alt="QR Code">`;
+      if (html) {
+        // Set the HTML content
+        qrContent.innerHTML = decodeURIComponent(html);
         
         // Update counter info if available
         if (counter) {
-          qrInfo.textContent = counter;
-        } else {
-          qrInfo.textContent = 'QR Code';
+          qrCounter.textContent = decodeURIComponent(counter);
+        }
+        
+        // Make sure any images are properly sized
+        const qrImg = qrContent.querySelector('img');
+        if (qrImg) {
+          qrImg.style.maxWidth = '100%';
+          qrImg.style.maxHeight = '70vh';
+          qrImg.style.height = 'auto';
+          qrImg.style.width = 'auto';
         }
       } else {
-        qrInfo.textContent = 'No QR code data found';
+        qrContent.innerHTML = '<p style="color: #FF0000;">No QR code data available</p>';
       }
     }
     
@@ -91,13 +190,31 @@
     window.addEventListener('message', function(event) {
       if (event.data && event.data.type === 'updateQR') {
         // Update the URL with new data without page reload
-        const newUrl = `${window.location.pathname}?qr=${encodeURIComponent(event.data.qr)}&counter=${encodeURIComponent(event.data.counter)}`;
+        const newUrl = `${window.location.pathname}?html=${encodeURIComponent(event.data.html)}&counter=${encodeURIComponent(event.data.counter)}`;
         window.history.replaceState({}, '', newUrl);
         
         // Update the QR code
         updateQR();
       }
     });
+    
+    // Auto-resize based on orientation
+    function adjustForOrientation() {
+      const isLandscape = window.innerWidth > window.innerHeight;
+      const container = document.getElementById('qr-container');
+      
+      if (isLandscape) {
+        container.style.maxWidth = '90vw';
+      } else {
+        container.style.maxWidth = '95vw';
+      }
+    }
+    
+    // Set initial size
+    adjustForOrientation();
+    
+    // Listen for orientation changes
+    window.addEventListener('resize', adjustForOrientation);
   </script>
 </body>
 </html>
