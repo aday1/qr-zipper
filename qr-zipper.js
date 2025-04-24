@@ -16,7 +16,7 @@ const floatingQrContainer = document.getElementById('floating-qr-container');
 const floatingQrClose = document.getElementById('floating-qr-close');
 const floatingQrContent = document.getElementById('floating-qr-content');
 const floatingQrCounter = document.getElementById('floating-qr-counter');
-const openQrWindowBtn = document.getElementById('open-qr-window');
+// No longer needed since we've redesigned the layout
 const fullscreenQr = document.getElementById('fullscreen-qr');
 const fullscreenQrContent = document.getElementById('fullscreen-qr-content');
 const fullscreenQrClose = document.getElementById('fullscreen-qr-close');
@@ -517,79 +517,9 @@ function setupEventListeners() {
     floatingQrContainer.style.display = 'none';
   });
   
-  // Store reference to the popup window
-  let qrPopupWindow = null;
-  
-  // Function to open QR code in a new window
-  function openQrInNewWindow() {
-    // Close any existing popup
-    if (qrPopupWindow && !qrPopupWindow.closed) {
-      qrPopupWindow.close();
-    }
-    
-    // Get the QR display content from the main QR container
-    const qrDisplay = p2pQrcodeContainer ? p2pQrcodeContainer.innerHTML : '';
-    
-    if (!qrDisplay) {
-      log('No QR code found to open in new window');
-      return;
-    }
-    
-    // Get the counter text
-    const counter = floatingQrCounter.textContent;
-    
-    // Open a new window with the QR window HTML
-    qrPopupWindow = window.open(
-      `qr-window.html?html=${encodeURIComponent(qrDisplay)}&counter=${encodeURIComponent(counter)}`,
-      'QRCodeWindow',
-      'width=600,height=600,resizable=yes,scrollbars=no,toolbar=no,menubar=no,status=no,location=no'
-    );
-    
-    // Focus the window if opened successfully
-    if (qrPopupWindow) {
-      qrPopupWindow.focus();
-      log('Opened QR code in new window');
-    } else {
-      log('Failed to open QR code window - popup may be blocked');
-      alert('Popup blocked! Please allow popups for this site to open the QR code in a new window.');
-    }
-  }
-  
-  // Update QR in popup window if it exists
-  function updateQrInPopup() {
-    if (qrPopupWindow && !qrPopupWindow.closed) {
-      if (p2pQrcodeContainer) {
-        // Send message to update the QR code display
-        qrPopupWindow.postMessage({
-          type: 'updateQR',
-          html: p2pQrcodeContainer.innerHTML,
-          counter: floatingQrCounter.textContent
-        }, '*');
-        
-        log('Updated QR code in popup window');
-      }
-    }
-  }
-  
-  // Add event listener to open QR in new window
-  openQrWindowBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    openQrInNewWindow();
-  });
-  
-  // Close popup window when floating QR is closed
+  // Floating QR code controls
   floatingQrClose.addEventListener('click', () => {
-    if (qrPopupWindow && !qrPopupWindow.closed) {
-      qrPopupWindow.close();
-      qrPopupWindow = null;
-    }
-  });
-  
-  // Close popup window when page unloads
-  window.addEventListener('beforeunload', () => {
-    if (qrPopupWindow && !qrPopupWindow.closed) {
-      qrPopupWindow.close();
-    }
+    floatingQrContainer.style.display = 'none';
   });
 }
 
@@ -1842,12 +1772,6 @@ function stopTransfer() {
     qrPopupWindow = null;
   }
   
-  // Close popup window if it's open
-  if (qrPopupWindow && !qrPopupWindow.closed) {
-    qrPopupWindow.close();
-    qrPopupWindow = null;
-  }
-  
   // Keep chunks in memory for possible resume
   log('Transfer stopped', {
     chunksInMemory: p2pChunks ? p2pChunks.length : 0,
@@ -2059,8 +1983,7 @@ function displayCurrentChunk() {
       floatingQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
       floatingQrContainer.style.display = 'block';
       
-      // Update QR code in popup window if it's open
-      updateQrInPopup();
+      // QR code is now at the top of the page, no need to update popup
     } else if (p2pQrcodeContainer.querySelector('.fallback-qr')) {
       // Handle fallback QR display
       const fallbackQr = p2pQrcodeContainer.querySelector('.fallback-qr');
@@ -2071,21 +1994,7 @@ function displayCurrentChunk() {
       floatingQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
       floatingQrContainer.style.display = 'block';
       
-      // For fallback QR code, update the popup if it's open
-      if (qrPopupWindow && !qrPopupWindow.closed) {
-        try {
-          // Send the fallback QR HTML directly to the popup
-          qrPopupWindow.postMessage({
-            type: 'updateQR',
-            html: p2pQrcodeContainer.innerHTML,
-            counter: `${currentChunkIndex + 1} / ${p2pChunks.length} (Fallback Mode)`
-          }, '*');
-          
-          log('Sent fallback QR HTML to popup window');
-        } catch (err) {
-          log('Error updating popup with fallback QR', { error: err.message });
-        }
-      }
+      // QR code (fallback) is now at the top of the page, no need to update popup
     }
     
     log('Successfully displayed chunk', {
@@ -2261,9 +2170,15 @@ async function startReceiving() {
         // Refresh the camera list
         await refreshCameraList(true);
         
-        // Show the video stream
+        // Show the video stream with enhanced styling
         p2pVideo.srcObject = p2pStream;
         p2pVideo.style.display = 'block';
+        
+        // Position the video in the top camera container for better visibility
+        const cameraContainer = document.querySelector('.camera-top-container');
+        if (cameraContainer) {
+          cameraContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+        }
         
         startReceivingBtn.style.display = 'none';
         stopReceivingBtn.style.display = 'inline-block';

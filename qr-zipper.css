@@ -287,17 +287,46 @@ input[type="range"] {
   margin-top: 15px;
 }
 
+/* Enhanced QR display container at the top */
+.qr-top-container {
+  margin: 0 0 20px 0;
+  padding: 15px;
+  background-color: #fff;
+  border-radius: 8px;
+  width: 100%;
+  min-height: 330px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
 #qrcode, #p2p-qrcode {
   margin-bottom: 15px;
   display: flex;
   justify-content: center;
   background-color: #fff;
-  padding: 5px;
+  padding: 10px;
   border-radius: 6px;
+  max-width: 100%;
 }
 
 #qrcode img, #p2p-qrcode img {
   max-width: 100%;
+  height: auto;
+}
+
+/* Enhanced QR image styles for top container */
+.qr-top-container #p2p-qrcode {
+  background-color: #fff;
+  padding: 15px;
+  margin-bottom: 10px;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+}
+
+.qr-top-container #p2p-qrcode img {
+  width: 100%;
+  max-width: 300px;
   height: auto;
 }
 
@@ -526,6 +555,21 @@ input[type="range"] {
   text-align: center;
 }
 
+/* Enhanced camera container at the top */
+.camera-top-container {
+  margin: 0 0 20px 0;
+  padding: 15px;
+  background-color: rgba(0, 100, 0, 0.1);
+  border: 1px solid var(--terminal-green);
+  border-radius: 8px;
+  width: 100%;
+  min-height: 330px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
 video {
   width: 100%;
   max-width: 400px;
@@ -533,6 +577,16 @@ video {
   border-radius: 6px;
   margin: 0 auto;
   background-color: var(--terminal-black);
+}
+
+/* Enhanced video styles for top container */
+.camera-top-container video {
+  max-width: 100%;
+  max-height: 300px;
+  width: auto;
+  height: auto;
+  border: 2px solid var(--terminal-green);
+  box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
 }
 
 .camera-select-wrapper {
@@ -639,11 +693,31 @@ camera-placeholder {
   justify-content: center;
 }
 
+/* Enhanced navigation for top container */
+.qr-top-container .p2p-navigation {
+  margin-top: 15px;
+  background-color: var(--terminal-gray);
+  padding: 8px;
+  border-radius: 6px;
+  width: 100%;
+  max-width: 300px;
+}
+
 #chunk-counter {
   font-weight: bold;
   font-size: 1rem;
   min-width: 60px;
   text-align: center;
+}
+
+/* Enhanced chunk counter for top container */
+.qr-top-container #chunk-counter {
+  font-size: 1.2rem;
+  min-width: 80px;
+  color: var(--terminal-green);
+  background-color: var(--terminal-black);
+  padding: 5px 10px;
+  border-radius: 4px;
 }
 
 /* Debug Info */

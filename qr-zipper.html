@@ -142,6 +142,32 @@
       
       <!-- SEND Panel -->
       <div class="p2p-panel active" id="send-panel">
+        <!-- Move QR display to the top for better visibility -->
+        <div class="result-container qr-top-container">
+          <div id="p2p-qrcode"></div>
+          
+          <div class="p2p-navigation" style="display: none;">
+            <button class="btn btn-secondary" id="prev-chunk">&lt; Previous</button>
+            <span id="chunk-counter">0 / 0</span>
+            <button class="btn btn-secondary" id="next-chunk">Next &gt;</button>
+          </div>
+        </div>
+        
+        <div class="info-box">
+          <p class="info-title">Transfer Status</p>
+          <div class="progress-container">
+            <div class="progress-bar" id="send-progress"></div>
+          </div>
+          <div id="send-status">Ready to send</div>
+          <button class="btn btn-secondary" id="debug-p2p">Debug Transfer</button>
+        </div>
+        
+        <div class="button-group">
+          <button class="btn btn-primary" id="start-transfer">Start Transfer</button>
+          <button class="btn btn-danger" id="stop-transfer" style="display: none;">Stop Transfer</button>
+          <button class="btn btn-secondary" id="manual-nav" style="display: none;">Manual Navigation</button>
+        </div>
+        
         <div class="file-drop-area" id="p2p-file-drop">
           <p>Drag & drop a text file here or</p>
           <button class="btn btn-secondary" id="p2p-file-select-btn">Select File</button>
@@ -173,69 +199,31 @@
           </div>
           <p class="size-hint">Smaller chunks are more reliable but create more QR codes. Very small chunks (below 300 bytes) may create many QR codes.</p>
         </div>
-        
-        <div class="button-group">
-          <button class="btn btn-primary" id="start-transfer">Start Transfer</button>
-          <button class="btn btn-danger" id="stop-transfer" style="display: none;">Stop Transfer</button>
-          <button class="btn btn-secondary" id="manual-nav" style="display: none;">Manual Navigation</button>
-        </div>
-        
-        <div class="info-box">
-          <p class="info-title">Transfer Status</p>
-          <div class="progress-container">
-            <div class="progress-bar" id="send-progress"></div>
-          </div>
-          <div id="send-status">Ready to send</div>
-          <button class="btn btn-secondary" id="debug-p2p">Debug Transfer</button>
-        </div>
-        
-        <div class="result-container">
-          <div id="p2p-qrcode"></div>
-          
-          <div class="p2p-navigation" style="display: none;">
-            <button class="btn btn-secondary" id="prev-chunk">&lt; Previous</button>
-            <span id="chunk-counter">0 / 0</span>
-            <button class="btn btn-secondary" id="next-chunk">Next &gt;</button>
-          </div>
-        </div>
       </div>
       
       <!-- RECEIVE Panel -->
       <div class="p2p-panel" id="receive-panel">
+        <!-- Camera at the top for better visibility -->
+        <div class="camera-container camera-top-container">
+          <video id="p2p-video" style="display: none;" autoplay playsinline></video>
+          <button class="btn btn-secondary" id="p2p-snapshot" style="display: none;">Take Single Snapshot</button>
+        </div>
+        
         <div class="info-box">
           <p class="info-title">Camera Settings</p>
           <p>Position your camera to capture the QR codes from the sending device. Data will appear as it's received.</p>
         </div>
       
-        <div class="camera-select-wrapper" id="p2p-camera-select-container" style="display: none;">
-          <label>Select Camera:</label>
-          <div id="p2p-camera-options" class="camera-options"></div>
-        </div>
-        
-        <div class="camera-container">
-          <video id="p2p-video" style="display: none;" autoplay playsinline></video>
-          <button class="btn btn-secondary" id="p2p-snapshot" style="display: none;">Take Single Snapshot</button>
-        </div>
-        
-        <div class="form-group">
-          <label for="p2p-receive-password">Password (if required):</label>
-          <input type="password" id="p2p-receive-password" placeholder="Enter password if data is encrypted">
-        </div>
-        
         <div class="button-group">
           <button class="btn btn-primary" id="start-receiving">Start Receiving</button>
           <button class="btn btn-danger" id="stop-receiving" style="display: none;">Stop Receiving</button>
           <button class="btn btn-secondary" id="force-decode">Force Decode & Display</button>
           <button class="btn btn-secondary" id="manual-entry">Manual QR Entry</button>
         </div>
-
-        <div id="manual-entry-form" style="display: none;" class="form-group">
-          <label for="manual-qr-data">Paste QR Code Data:</label>
-          <textarea id="manual-qr-data" placeholder="Paste the raw QR code data here"></textarea>
-          <div class="button-group">
-            <button class="btn btn-primary" id="submit-manual-data">Process Manual Data</button>
-            <button class="btn btn-danger" id="cancel-manual-entry">Cancel</button>
-          </div>
+        
+        <div class="camera-select-wrapper" id="p2p-camera-select-container" style="display: none;">
+          <label>Select Camera:</label>
+          <div id="p2p-camera-options" class="camera-options"></div>
         </div>
         
         <div class="info-box">
@@ -245,6 +233,20 @@
           </div>
           <div id="receive-status">Ready to receive</div>
           <div id="chunk-status"></div>
+        </div>
+        
+        <div class="form-group">
+          <label for="p2p-receive-password">Password (if required):</label>
+          <input type="password" id="p2p-receive-password" placeholder="Enter password if data is encrypted">
+        </div>
+
+        <div id="manual-entry-form" style="display: none;" class="form-group">
+          <label for="manual-qr-data">Paste QR Code Data:</label>
+          <textarea id="manual-qr-data" placeholder="Paste the raw QR code data here"></textarea>
+          <div class="button-group">
+            <button class="btn btn-primary" id="submit-manual-data">Process Manual Data</button>
+            <button class="btn btn-danger" id="cancel-manual-entry">Cancel</button>
+          </div>
         </div>
         
         <div class="p2p-data-container">
@@ -314,16 +316,13 @@
     <p>[QR-Zipper]::system_v2.5.0::encryption_enabled::2025</p>
   </footer>
 
-  <!-- Floating QR container (initially hidden) -->
+  <!-- Floating QR container hidden but kept for backward compatibility -->
   <div id="floating-qr-container" class="floating-qr-container" style="display: none;">
     <div class="qr-close" id="floating-qr-close">×</div>
     <div class="qr-title">QR Code Transfer</div>
     <div class="qr-counter" id="floating-qr-counter">0 / 0</div>
     <div id="floating-qr-content"></div>
-    <a href="#" class="btn btn-secondary" id="open-qr-window">Open in New Window</a>
   </div>
-
-  <!-- Fullscreen functionality removed in favor of new window approach -->
 
   <!-- JavaScript File -->
   <script src="qr-zipper.js"></script>
