@@ -77,6 +77,13 @@ const p2pVideo = document.getElementById('p2p-video');
 const p2pReceivePassword = document.getElementById('p2p-receive-password');
 const startReceivingBtn = document.getElementById('start-receiving');
 const stopReceivingBtn = document.getElementById('stop-receiving');
+const p2pSnapshotBtn = document.getElementById('p2p-snapshot');
+const forceDecodeBtn = document.getElementById('force-decode');
+const manualEntryBtn = document.getElementById('manual-entry');
+const manualEntryForm = document.getElementById('manual-entry-form');
+const manualQrData = document.getElementById('manual-qr-data');
+const submitManualDataBtn = document.getElementById('submit-manual-data');
+const cancelManualEntryBtn = document.getElementById('cancel-manual-entry');
 const receiveProgress = document.getElementById('receive-progress');
 const receiveStatus = document.getElementById('receive-status');
 const chunkStatus = document.getElementById('chunk-status');
@@ -269,6 +276,94 @@ function setupEventListeners() {
   startReceivingBtn.addEventListener('click', startReceiving);
   stopReceivingBtn.addEventListener('click', stopReceiving);
   downloadReceivedBtn.addEventListener('click', () => downloadTextFile(receivedData, 'received-data.txt'));
+  
+  // Force decode button - try to decode with current data even if incomplete
+  forceDecodeBtn.addEventListener('click', () => {
+    log('Force decode requested');
+    receiveStatus.textContent = 'Forcing decode with available chunks...';
+    assembleAndDecryptData(true); // Force final assembly
+  });
+  
+  // Manual QR code entry
+  manualEntryBtn.addEventListener('click', () => {
+    log('Manual entry requested');
+    manualEntryForm.style.display = 'block';
+    manualQrData.focus();
+  });
+  
+  cancelManualEntryBtn.addEventListener('click', () => {
+    manualEntryForm.style.display = 'none';
+    manualQrData.value = '';
+  });
+  
+  submitManualDataBtn.addEventListener('click', () => {
+    const data = manualQrData.value.trim();
+    if (data) {
+      log('Processing manually entered QR data', {length: data.length});
+      processP2PChunk(data);
+      manualQrData.value = '';
+      manualEntryForm.style.display = 'none';
+    } else {
+      alert('Please paste QR code data first');
+    }
+  });
+  
+  // Take a single snapshot for testing
+  p2pSnapshotBtn.addEventListener('click', () => {
+    if (!p2pVideo.srcObject) {
+      log('Cannot take snapshot - video not active');
+      return;
+    }
+    
+    log('Taking manual snapshot from P2P camera');
+    
+    try {
+      // Create canvas and capture image
+      const canvas = document.createElement('canvas');
+      canvas.width = p2pVideo.videoWidth;
+      canvas.height = p2pVideo.videoHeight;
+      const context = canvas.getContext('2d');
+      context.drawImage(p2pVideo, 0, 0, canvas.width, canvas.height);
+      
+      // Use our multi-method approach to decode
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      
+      // Add visual feedback
+      receiveStatus.textContent = 'Processing snapshot...';
+      
+      // Create a visible snapshot for debugging
+      const dataUrl = canvas.toDataURL('image/png');
+      const snapshotImg = new Image();
+      snapshotImg.src = dataUrl;
+      snapshotImg.style.maxWidth = '200px';
+      snapshotImg.style.border = '1px solid white';
+      document.querySelector('.camera-container').appendChild(snapshotImg);
+      
+      // Try to decode with all methods
+      try {
+        // Method 1: Using our enhanced decode methods
+        decodeWithMultipleMethods(canvas, imageData)
+          .then(result => {
+            if (result && result.text) {
+              processP2PChunk(result.text);
+            } else {
+              log('No QR code found in snapshot');
+              receiveStatus.textContent = 'No QR code found in snapshot';
+            }
+          })
+          .catch(err => {
+            log('Error decoding snapshot', {error: err.message});
+            receiveStatus.textContent = 'Error decoding snapshot: ' + err.message;
+          });
+      } catch (error) {
+        log('Error processing snapshot', {error: error.message});
+        receiveStatus.textContent = 'Error processing snapshot: ' + error.message;
+      }
+    } catch (error) {
+      log('Snapshot error', {error: error.message});
+      receiveStatus.textContent = 'Error taking snapshot: ' + error.message;
+    }
+  });
   
   // Display interval
   displayInterval.addEventListener('input', () => {
@@ -790,21 +885,49 @@ function encryptData(data, password) {
 function decryptData(encryptedData, password) {
   try {
     // Check if data is encrypted
+    if (!encryptedData || typeof encryptedData !== 'string') {
+      throw new Error('Invalid data format for decryption');
+    }
+    
+    // Log first part of data for debugging
+    log('Attempting to decrypt data', {
+      startsWithPrefix: encryptedData.startsWith('ENCRYPTED:'),
+      dataLength: encryptedData.length,
+      passwordLength: password ? password.length : 0,
+      firstChars: encryptedData.substring(0, 20) + '...'
+    });
+    
     if (!encryptedData.startsWith('ENCRYPTED:')) {
       return encryptedData;
     }
     
     // Remove the prefix and decrypt
     const encryptedContent = encryptedData.substring(10);
+    
+    // Check if the content is a valid base64 format for CryptoJS
+    if (!encryptedContent || encryptedContent.length < 10) {
+      throw new Error('Encrypted content is too short or invalid');
+    }
+    
+    // Perform decryption
     const decrypted = CryptoJS.AES.decrypt(encryptedContent, password).toString(CryptoJS.enc.Utf8);
     
     if (!decrypted) {
       throw new Error('Invalid password or corrupted data');
     }
     
+    log('Decryption successful', {
+      resultLength: decrypted.length,
+      firstDecryptedChars: decrypted.substring(0, 20) + '...'
+    });
+    
     return decrypted;
   } catch (error) {
-    log('Decryption error', {error: error.message});
+    log('Decryption error', {
+      error: error.message,
+      errorType: error.name,
+      passwordProvided: !!password
+    });
     throw new Error('Decryption failed: Incorrect password or corrupted data');
   }
 }
@@ -1466,6 +1589,10 @@ async function startReceiving() {
   
   // Clear any password highlighting
   p2pReceivePassword.classList.remove('needs-password');
+  
+  // Clear any previous data
+  receivedChunks = {};
+  totalExpectedChunks = 0;
   try {
     log('Starting P2P receiving...');
     receiveStatus.textContent = 'Requesting camera access...';
@@ -1514,6 +1641,7 @@ async function startReceiving() {
       
       startReceivingBtn.style.display = 'none';
       stopReceivingBtn.style.display = 'inline-block';
+      p2pSnapshotBtn.style.display = 'inline-block';
       
       // Start scanning for QR codes
       receiveStatus.textContent = 'Camera active. Scanning for QR codes...';
@@ -1594,6 +1722,7 @@ function stopReceiving() {
   
   startReceivingBtn.style.display = 'inline-block';
   stopReceivingBtn.style.display = 'none';
+  p2pSnapshotBtn.style.display = 'none';
   receiveStatus.textContent = 'Receiving stopped';
   
   log('P2P receiving stopped');
@@ -1604,9 +1733,17 @@ function scanP2PQRCodes() {
   
   log('Started QR scanning loop');
   
+  // Display immediate feedback in the data field
+  receivedData.value = "Camera active and scanning for QR codes...\n\nPosition the QR code in view of the camera.";
+  
+  // Counter for logging scan attempts (for debugging)
+  let scanCounter = 0;
+  let lastSuccessTime = Date.now();
+  
   // Set up continuous scanning
   const scanLoop = async () => {
     if (!p2pVideo.srcObject) return;
+    scanCounter++;
     
     try {
       // Create canvas for frame capture
@@ -1619,22 +1756,80 @@ function scanP2PQRCodes() {
       context.drawImage(p2pVideo, 0, 0, canvas.width, canvas.height);
       const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
       
-      // Try to decode QR code
+      // Every 50 scans without success, log a status update
+      const timeSinceLastSuccess = Date.now() - lastSuccessTime;
+      if (scanCounter % 50 === 0) {
+        log('Still scanning...', {
+          attempts: scanCounter,
+          timeSinceLastSuccess: `${Math.round(timeSinceLastSuccess/1000)}s`,
+          videoSize: `${canvas.width}x${canvas.height}px`
+        });
+        
+        // After 10 seconds with no detection, try different methods
+        if (timeSinceLastSuccess > 10000) {
+          // Try various ZXing settings to improve detection
+          try {
+            // Try with our multi-method approach
+            log('Trying alternate decode methods after timeout');
+            decodeWithMultipleMethods(canvas, imageData);
+          } catch (e) {
+            // Ignore errors in alternate methods
+          }
+        }
+      }
+      
+      // Try to decode QR code using multiple methods
       try {
-        const result = await codeReader.decodeFromImageData(imageData);
-        if (result && result.text) {
-          await processP2PChunk(result.text);
+        // Method 1: ZXing's decodeFromImageData (if available)
+        if (typeof codeReader.decodeFromImageData === 'function') {
+          const result = await codeReader.decodeFromImageData(imageData);
+          if (result && result.text) {
+            lastSuccessTime = Date.now();
+            scanCounter = 0;
+            await processP2PChunk(result.text);
+          }
+        }
+        // Method 2: Try direct canvas decoding
+        else {
+          const result = await codeReader.decodeFromImage(canvas);
+          if (result && result.text) {
+            lastSuccessTime = Date.now();
+            scanCounter = 0;
+            await processP2PChunk(result.text);
+          }
         }
       } catch (error) {
         // No QR code found or other error - just continue scanning
+        // Every 200 attempts, try the alternate decoder
+        if (scanCounter % 200 === 0) {
+          try {
+            // Create an image and try the alternate decode path
+            const img = new Image();
+            img.src = canvas.toDataURL('image/png');
+            img.onload = async () => {
+              try {
+                const result = await codeReader.decodeFromImage(img);
+                if (result && result.text) {
+                  lastSuccessTime = Date.now();
+                  scanCounter = 0;
+                  await processP2PChunk(result.text);
+                }
+              } catch (e) {
+                // Ignore alternates that don't work
+              }
+            };
+          } catch (fallbackError) {
+            // Ignore alternative method errors
+          }
+        }
       }
       
-      // Continue scanning
-      requestAnimationFrame(scanLoop);
+      // Continue scanning with a small delay to prevent overloading
+      setTimeout(() => requestAnimationFrame(scanLoop), 10);
     } catch (error) {
       log('Scan error', {error: error.message});
-      // Continue scanning despite error
-      requestAnimationFrame(scanLoop);
+      // Continue scanning despite error, but with a short delay
+      setTimeout(() => requestAnimationFrame(scanLoop), 100);
     }
   };
   
@@ -1649,7 +1844,7 @@ async function processP2PChunk(data) {
     const match = data.match(chunkRegex);
     
     if (!match) {
-      log('Invalid QR chunk format');
+      log('Invalid QR chunk format', {dataPrefix: data.substring(0, 30)});
       return;
     }
     
@@ -1658,18 +1853,29 @@ async function processP2PChunk(data) {
     const md5Checksum = match[3];
     let chunkData = match[4];
     
+    log('Recognized QR chunk format', {
+      chunkNumber,
+      totalChunks, 
+      dataLength: chunkData.length,
+      isEncrypted: chunkData.startsWith('ENCRYPTED:')
+    });
+    
     // Update total chunks expected if this is our first chunk
     if (totalExpectedChunks === 0) {
       totalExpectedChunks = totalChunks;
       log('Detected multi-part transfer', {totalChunks});
       
       // Initialize the textarea and show download button for the streaming data
-      receivedData.value = '';
+      receivedData.value = 'Starting to receive data...';
       downloadReceivedBtn.style.display = 'block';
+      
+      // Force debug display to be visible for troubleshooting
+      debugInfo.style.display = 'block';
     }
     
     // Skip if we already have this chunk
     if (receivedChunks[chunkNumber]) {
+      log('Already have chunk', {number: chunkNumber});
       return;
     }
     
@@ -1680,7 +1886,7 @@ async function processP2PChunk(data) {
     };
     beep(); // Play sound to indicate successful scan
     
-    // Update status
+    // Update status immediately
     const receivedCount = Object.keys(receivedChunks).length;
     receiveStatus.textContent = `Received ${receivedCount} of ${totalChunks} chunks`;
     chunkStatus.textContent = `Just scanned: Chunk ${chunkNumber} of ${totalChunks}`;
@@ -1688,34 +1894,76 @@ async function processP2PChunk(data) {
     // Update progress bar
     receiveProgress.style.width = `${(receivedCount / totalChunks) * 100}%`;
     
-    log('Chunk received', {number: chunkNumber, total: totalChunks, count: receivedCount});
+    log('Chunk received', {
+      number: chunkNumber, 
+      total: totalChunks, 
+      count: receivedCount,
+      dataStartsWith: chunkData.substring(0, 20) + '...'
+    });
     
-    // Stream the partial data as we receive it
-    updatePartialReceivedData();
+    // Write a temporary message to show immediate feedback
+    receivedData.value += `\nReceived chunk ${chunkNumber} of ${totalChunks}...`;
     
-    // Check if we have all chunks
-    if (receivedCount === totalChunks) {
-      await assembleAndDecryptData(true); // true = final assembly
-    }
+    // Stream the partial data as we receive it - using setTimeout to let UI update first
+    setTimeout(() => {
+      updatePartialReceivedData();
+      
+      // Check if we have all chunks
+      if (receivedCount === totalChunks) {
+        assembleAndDecryptData(true); // true = final assembly
+      }
+    }, 10);
   } catch (error) {
-    log('Chunk processing error', {error: error.message});
+    log('Chunk processing error', {error: error.message, stack: error.stack});
+    // Show error in UI too
+    receivedData.value += `\nError processing chunk: ${error.message}`;
   }
 }
 
 // Function to update the received data in real-time as chunks arrive
 function updatePartialReceivedData() {
   try {
-    // Only proceed if we have expected chunks
-    if (totalExpectedChunks === 0) return;
+    log('Updating partial data display');
     
-    // Check if we have an encryption prefix in any chunk (first chunk should have it)
-    const isEncrypted = receivedChunks[1] ? 
-      receivedChunks[1].data.startsWith('ENCRYPTED:') : 
-      Object.values(receivedChunks).some(chunk => chunk.data.startsWith('ENCRYPTED:'));
+    // Only proceed if we have any received chunks
+    if (Object.keys(receivedChunks).length === 0) {
+      log('No chunks received yet');
+      return;
+    }
     
-    // If encrypted and no password, show a placeholder
+    // Even if totalExpectedChunks is 0, we might have received a chunk but not processed it fully
+    if (totalExpectedChunks === 0) {
+      // Try to determine from the chunks we have
+      const anyChunk = Object.values(receivedChunks)[0];
+      if (anyChunk && anyChunk.md5) {
+        log('Detected chunk but totalExpectedChunks not set', { chunk: anyChunk });
+        receivedData.value = 'Detected partial data, starting to receive...';
+        return;
+      }
+    }
+    
+    // Debug info - see what chunks we've received
+    const receivedKeys = Object.keys(receivedChunks).sort();
+    log('Current received chunks', { 
+      count: receivedKeys.length, 
+      keys: receivedKeys,
+      totalExpected: totalExpectedChunks
+    });
+    
+    // Check if any chunk has encryption (first chunk should have it, but be flexible)
+    let isEncrypted = false;
+    for (const chunkNum of receivedKeys) {
+      if (receivedChunks[chunkNum] && receivedChunks[chunkNum].data &&
+          receivedChunks[chunkNum].data.startsWith('ENCRYPTED:')) {
+        isEncrypted = true;
+        break;
+      }
+    }
+    
+    // If encrypted and no password, prompt for password
     if (isEncrypted && !p2pReceivePassword.value) {
-      receivedData.value = '[Encrypted data - Enter password to view]';
+      log('Encrypted data detected, waiting for password');
+      receivedData.value = '[ENCRYPTED DATA DETECTED]\n\nPlease enter the password in the field above to view the data...';
       
       // Highlight password field to prompt user
       p2pReceivePassword.classList.add('needs-password');
@@ -1723,66 +1971,111 @@ function updatePartialReceivedData() {
       return;
     }
     
-    // Sort chunks by chunk number
-    const sortedChunkNumbers = Object.keys(receivedChunks)
-      .map(Number)
-      .sort((a, b) => a - b);
-    
-    // Collect chunk data in order, marking missing chunks
+    // Collect the data we have so far
     let partialData = '';
-    const receivedRanges = [];
-    let currentRange = { start: null, end: null };
     
-    for (let i = 1; i <= totalExpectedChunks; i++) {
-      if (receivedChunks[i]) {
-        // Start a new range if needed
-        if (currentRange.start === null) {
-          currentRange.start = i;
-        }
-        currentRange.end = i;
-      } else if (currentRange.start !== null) {
-        // End of a range, store it
-        receivedRanges.push({...currentRange});
-        currentRange = { start: null, end: null };
-      }
-    }
-    
-    // Add the last range if it's open
-    if (currentRange.start !== null) {
-      receivedRanges.push({...currentRange});
-    }
-    
-    // Build received data from chunks in received ranges
-    for (const range of receivedRanges) {
-      for (let i = range.start; i <= range.end; i++) {
-        partialData += receivedChunks[i].data;
-      }
-      // Add a separator between non-consecutive ranges
-      if (range !== receivedRanges[receivedRanges.length - 1]) {
-        partialData += '\n[...missing data...]\n';
-      }
-    }
-    
-    // If we need decryption and have a password, try to decrypt partial data
-    if (isEncrypted && p2pReceivePassword.value) {
-      try {
-        // Create a temporary encrypted version with proper prefix
-        const tempEncrypted = 'ENCRYPTED:' + partialData;
-        const decrypted = decryptData(tempEncrypted, p2pReceivePassword.value);
-        receivedData.value = decrypted + '\n[Streaming partial data - continue scanning...]';
-      } catch (error) {
-        // Decryption failed - show raw data
-        receivedData.value = partialData + '\n[Encrypted data - continue scanning...]';
+    // Option 1: Simple concatenation for testing
+    if (receivedKeys.length <= 3) {
+      // For small number of chunks, just show each chunk separately for debugging
+      for (const key of receivedKeys) {
+        const chunk = receivedChunks[key];
+        partialData += `[Chunk ${key}]: ${chunk.data.substring(0, 20)}...\n`;
       }
     } else {
+      // For multiple chunks, try to identify contiguous ranges
+      const sortedChunkNumbers = receivedKeys.map(Number).sort((a, b) => a - b);
+      
+      // Collect chunk data in order, marking missing chunks
+      const receivedRanges = [];
+      let currentRange = { start: null, end: null };
+      
+      for (let i = 1; i <= totalExpectedChunks; i++) {
+        if (receivedChunks[i]) {
+          // Start a new range if needed
+          if (currentRange.start === null) {
+            currentRange.start = i;
+          }
+          currentRange.end = i;
+        } else if (currentRange.start !== null) {
+          // End of a range, store it
+          receivedRanges.push({...currentRange});
+          currentRange = { start: null, end: null };
+        }
+      }
+      
+      // Add the last range if it's open
+      if (currentRange.start !== null) {
+        receivedRanges.push({...currentRange});
+      }
+      
+      log('Identified data ranges', { ranges: receivedRanges });
+      
+      // Build received data from chunks in received ranges
+      for (const range of receivedRanges) {
+        for (let i = range.start; i <= range.end; i++) {
+          // Only add if we actually have the chunk (defensive check)
+          if (receivedChunks[i] && receivedChunks[i].data) {
+            partialData += receivedChunks[i].data;
+          }
+        }
+        // Add a separator between non-consecutive ranges
+        if (range !== receivedRanges[receivedRanges.length - 1]) {
+          partialData += '\n[...missing data...]\n';
+        }
+      }
+    }
+    
+    // Special handling for encrypted data
+    if (isEncrypted && p2pReceivePassword.value) {
+      try {
+        // For debugging, show what we're trying to decrypt
+        log('Attempting to decrypt partial data', {
+          partialDataLength: partialData.length,
+          hasPassword: p2pReceivePassword.value.length > 0,
+          firstChars: partialData.substring(0, 20) + '...'
+        });
+        
+        // Create a temporary encrypted version with proper prefix
+        // Only if the data doesn't already have the prefix
+        const tempEncrypted = partialData.startsWith('ENCRYPTED:') ? 
+          partialData : 'ENCRYPTED:' + partialData;
+        
+        // Try to decrypt - this might fail for partial data which is expected
+        try {
+          const decrypted = decryptData(tempEncrypted, p2pReceivePassword.value);
+          receivedData.value = decrypted + '\n\n[LIVE DATA STREAM - continue scanning...]';
+          log('Successfully decrypted partial data');
+        } catch (decryptError) {
+          // Decryption failed but we have the password - could be partial data or wrong password
+          log('Partial decrypt failed', { error: decryptError.message });
+          receivedData.value = 'RECEIVED DATA (encrypted):\n\n' + 
+            partialData.substring(0, 100) + '...\n\n' +
+            '[Decryption pending - continue scanning or check password]';
+        }
+      } catch (error) {
+        // Fall back to showing the raw data
+        log('Decrypt attempt failed', { error: error.message });
+        receivedData.value = 'RECEIVED DATA (raw):\n\n' + partialData.substring(0, 200) + 
+                          '\n\n[' + Object.keys(receivedChunks).length + ' chunks received]';
+      }
+    } else if (!isEncrypted) {
       // Show raw data for non-encrypted content
-      receivedData.value = partialData + '\n[Streaming partial data - continue scanning...]';
+      receivedData.value = partialData + '\n\n[LIVE DATA STREAM - continue scanning...]';
+      log('Updated display with unencrypted data', {length: partialData.length});
+    } else {
+      // Encrypted but no password
+      receivedData.value = 'ENCRYPTED DATA (waiting for password):\n\n' + 
+                        partialData.substring(0, 100) + '...\n\n' +
+                        '[Enter password above to view content]';
     }
     
     // Scroll to the bottom
     receivedData.scrollTop = receivedData.scrollHeight;
   } catch (error) {
+    // Even if we have an error, try to show something
     log('Error updating partial data', {error: error.message});
+    receivedData.value = 'Error updating display, but data is being received.\n' +
+                      'Chunks received: ' + Object.keys(receivedChunks).length;
   }
 }
 
@@ -1813,9 +2106,11 @@ async function assembleAndDecryptData(isFinalAssembly = false) {
       }
     }
     
-    // If it's the final assembly and we're missing chunks, return early
+    // If it's the final assembly and we're missing chunks, show a warning but continue if it was forced
     if (isFinalAssembly && missingChunks.length > 0) {
-      return;
+      receiveStatus.textContent = `Warning: Missing ${missingChunks.length} chunks, but continuing with partial data`;
+      log('Proceeding with partial data', {missingChunks: missingChunks.length, totalChunks: totalExpectedChunks});
+      // We proceed with the chunks we have - this might produce incomplete/corrupted data
     }
     
     // Combine all chunks
@@ -1837,31 +2132,64 @@ async function assembleAndDecryptData(isFinalAssembly = false) {
     const password = p2pReceivePassword.value;
     let finalData = combinedData;
     
+    // Check if data is encrypted (might not start with prefix if it's a partial assembly)
+    const isFirstChunkEncrypted = receivedChunks[1] && 
+                               receivedChunks[1].data.startsWith('ENCRYPTED:');
+    const fullDataEncrypted = combinedData.startsWith('ENCRYPTED:');
+    const isEncrypted = fullDataEncrypted || isFirstChunkEncrypted;
+    
+    log('Checking encryption status', {
+      fullDataEncrypted,
+      isFirstChunkEncrypted,
+      isEncrypted,
+      hasPassword: !!password,
+      isFinalAssembly
+    });
+    
     // For the final assembly, handle encryption comprehensively
     if (isFinalAssembly) {
-      if (combinedData.startsWith('ENCRYPTED:') && password) {
+      if (isEncrypted && password) {
         log('Decrypting complete data...');
         try {
-          finalData = decryptData(combinedData, password);
+          // Ensure data has the encryption prefix
+          const dataToDecrypt = fullDataEncrypted ? combinedData : 'ENCRYPTED:' + combinedData;
+          finalData = decryptData(dataToDecrypt, password);
+          log('Decryption successful', {length: finalData.length});
         } catch (error) {
+          // Show detailed error message for debugging
           receiveStatus.textContent = 'Error: Incorrect password for encrypted data';
-          log('Decryption error', {error: error.message});
+          log('Final decryption error', {
+            error: error.message,
+            passwordLength: password.length,
+            dataPrefix: combinedData.substring(0, 30),
+            chunks: Object.keys(receivedChunks).length
+          });
+          
+          // Keep the data encrypted but viewable
+          finalData = 'DECRYPTION FAILED: Please check your password.\n\n' +
+                     (fullDataEncrypted ? combinedData.substring(10, 100) : combinedData.substring(0, 100)) +
+                     '...\n\n[Enter correct password and click "Start Receiving" again]';
           return;
         }
-      } else if (combinedData.startsWith('ENCRYPTED:') && !password) {
-        receiveStatus.textContent = 'This data is encrypted. Please enter the password.';
+      } else if (isEncrypted && !password) {
+        receiveStatus.textContent = 'All data received but it is encrypted. Please enter the password.';
         p2pReceivePassword.classList.add('needs-password');
         p2pReceivePassword.focus();
-        log('Password required for encrypted data');
+        log('Password required for completed encrypted data');
+        finalData = 'ENCRYPTED DATA RECEIVED SUCCESSFULLY\n\nPlease enter the password above to decrypt and view.';
         return;
       }
     } else {
       // For partial assembly, attempt decryption only if we have a password
-      if (combinedData.startsWith('ENCRYPTED:') && password) {
+      if (isEncrypted && password) {
         try {
-          finalData = decryptData(combinedData, password);
+          // Ensure data has the encryption prefix for decryption
+          const dataToDecrypt = fullDataEncrypted ? combinedData : 'ENCRYPTED:' + combinedData;
+          finalData = decryptData(dataToDecrypt, password);
+          log('Partial decryption successful');
         } catch (error) {
-          // Silently fail for partial decryption - we'll try again when we have more chunks
+          // Log but don't show error for partial decryption
+          log('Partial decryption failed', {error: error.message});
           finalData = combinedData;
         }
       }
