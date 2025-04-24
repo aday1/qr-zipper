@@ -1873,7 +1873,7 @@ function displayCurrentChunk() {
   // Determine QR code size and error correction level based on chunk size
   // For smaller chunks, we can use higher error correction for better reliability
   let correctLevel = QRCode.CorrectLevel.L; // Default low correction
-  let qrSize = 300; // Default size
+  let qrSize = 450; // Increased default size
   
   try {
     // Get selected chunk size from slider
@@ -1883,18 +1883,19 @@ function displayCurrentChunk() {
     if (selectedChunkSize <= 200) {
       // For extremely small chunks, use highest error correction
       correctLevel = QRCode.CorrectLevel.H;
-      qrSize = 340; // Larger size for better scanning
+      qrSize = 500; // Much larger size for better scanning
     } else if (selectedChunkSize <= 400) {
       // For very small chunks, use highest error correction
       correctLevel = QRCode.CorrectLevel.H;
-      qrSize = 320; // Slightly larger
+      qrSize = 490; // Larger size for better scanning
     } else if (selectedChunkSize <= 800) {
       // For small chunks, use medium-high error correction
       correctLevel = QRCode.CorrectLevel.Q;
-      qrSize = 310;
+      qrSize = 480; // Larger size for better scanning
     } else if (selectedChunkSize <= 1500) {
       // For medium chunks, use medium error correction
       correctLevel = QRCode.CorrectLevel.M;
+      qrSize = 470; // Larger size for better scanning
     }
     
     // Check if QRCode library is available

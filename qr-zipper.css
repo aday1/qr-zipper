@@ -294,7 +294,7 @@ input[type="range"] {
   background-color: #fff;
   border-radius: 8px;
   width: 100%;
-  min-height: 330px;
+  min-height: 500px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -319,14 +319,18 @@ input[type="range"] {
 /* Enhanced QR image styles for top container */
 .qr-top-container #p2p-qrcode {
   background-color: #fff;
-  padding: 15px;
+  padding: 10px;
   margin-bottom: 10px;
   box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .qr-top-container #p2p-qrcode img {
   width: 100%;
-  max-width: 300px;
+  max-width: 450px;
   height: auto;
 }
 
@@ -563,7 +567,7 @@ input[type="range"] {
   border: 1px solid var(--terminal-green);
   border-radius: 8px;
   width: 100%;
-  min-height: 330px;
+  min-height: 500px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -582,7 +586,7 @@ video {
 /* Enhanced video styles for top container */
 .camera-top-container video {
   max-width: 100%;
-  max-height: 300px;
+  max-height: 450px;
   width: auto;
   height: auto;
   border: 2px solid var(--terminal-green);
@@ -697,10 +701,17 @@ camera-placeholder {
 .qr-top-container .p2p-navigation {
   margin-top: 15px;
   background-color: var(--terminal-gray);
-  padding: 8px;
+  padding: 10px;
   border-radius: 6px;
   width: 100%;
-  max-width: 300px;
+  max-width: 400px;
+}
+
+/* Make navigation buttons larger */
+.qr-top-container .p2p-navigation .btn {
+  padding: 10px 20px;
+  font-size: 1rem;
+  margin: 0 10px;
 }
 
 #chunk-counter {
@@ -712,12 +723,15 @@ camera-placeholder {
 
 /* Enhanced chunk counter for top container */
 .qr-top-container #chunk-counter {
-  font-size: 1.2rem;
-  min-width: 80px;
+  font-size: 1.5rem;
+  min-width: 100px;
   color: var(--terminal-green);
   background-color: var(--terminal-black);
-  padding: 5px 10px;
+  padding: 8px 15px;
   border-radius: 4px;
+  margin: 15px 0;
+  font-weight: bold;
+  text-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
 }
 
 /* Debug Info */
