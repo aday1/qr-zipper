@@ -423,6 +423,44 @@ function setupEventListeners() {
     log('Transfer Active: ' + transferActive);
     log('Total Chunks: ' + (p2pChunks ? p2pChunks.length : 'none'));
     
+    // Library information
+    log('Library status:', {
+      qrcode: typeof QRCode,
+      zxing: typeof ZXing,
+      cryptojs: typeof CryptoJS
+    });
+    
+    // Test creating a simple QR code directly in debug area
+    try {
+      const testDiv = document.createElement('div');
+      testDiv.style.backgroundColor = 'white';
+      testDiv.style.padding = '5px';
+      testDiv.style.display = 'inline-block';
+      testDiv.style.margin = '5px 0';
+      
+      if (typeof QRCode === 'function') {
+        log('Testing QR code generation with simple text');
+        const testQR = new QRCode(testDiv, {
+          text: 'TEST-QR-CODE',
+          width: 100,
+          height: 100
+        });
+        
+        debugInfo.appendChild(document.createTextNode('Test QR:'));
+        debugInfo.appendChild(testDiv);
+        
+        if (testDiv.querySelector('img')) {
+          log('Test QR code generated successfully');
+        } else {
+          log('Test QR code failed to generate an image');
+        }
+      } else {
+        log('Cannot test QR code generation - library not available');
+      }
+    } catch (e) {
+      log('Test QR generation error:', {error: e.message});
+    }
+    
     // Force display if chunks exist
     if (p2pChunks && p2pChunks.length > 0) {
       log('Forcing display of current chunk');
@@ -430,7 +468,29 @@ function setupEventListeners() {
       if (currentChunkIndex >= p2pChunks.length) {
         currentChunkIndex = 0;
       }
-      displayCurrentChunk();
+      
+      try {
+        // Clear the QR container first
+        p2pQrcodeContainer.innerHTML = '';
+        
+        // Try direct method first for debugging
+        const testQRData = p2pChunks[currentChunkIndex];
+        log('Chunk data sample:', {
+          length: testQRData.length,
+          sample: testQRData.substring(0, 30) + '...'
+        });
+        
+        // Attempt to create QR with direct DOM manipulation
+        createFallbackQRCode(p2pQrcodeContainer, testQRData);
+        
+        // Then try normal method
+        setTimeout(() => {
+          displayCurrentChunk();
+        }, 500);
+      } catch (err) {
+        log('Error during debug QR creation:', {error: err.message});
+        sendStatus.textContent = 'Error during debug: ' + err.message;
+      }
     } else {
       log('No chunks to display');
       sendStatus.textContent = 'No chunks to display. Create chunks first.';
@@ -1538,6 +1598,14 @@ function startTransfer() {
     return;
   }
   
+  // Verify that QRCode library is loaded
+  if (typeof QRCode === 'undefined') {
+    sendStatus.textContent = 'Error: QRCode library not loaded. Please refresh the page.';
+    log('QRCode library is not available');
+    console.error('QRCode library not loaded');
+    return;
+  }
+  
   // Clear any previous display
   p2pQrcodeContainer.innerHTML = '';
   
@@ -1582,8 +1650,51 @@ function startTransfer() {
       transferActive = true;
       sendStatus.textContent = `Prepared ${p2pChunks.length} chunks for transfer`;
       
-      // Display first chunk
-      displayCurrentChunk();
+      // Display QR code directly here instead of using displayCurrentChunk
+      try {
+        // Basic sanity check
+        if (!p2pChunks[currentChunkIndex]) {
+          throw new Error('First chunk is undefined');
+        }
+        
+        const qrSize = 300; // Default size
+        const correctLevel = QRCode.CorrectLevel.L; // Default error correction
+        
+        // Create the QR code directly
+        log('Creating QR code for chunk', { 
+          index: currentChunkIndex, 
+          chunkLength: p2pChunks[currentChunkIndex].length 
+        });
+        
+        // Make sure container is empty
+        p2pQrcodeContainer.innerHTML = '';
+        
+        // Create new QR code instance
+        p2pQrInstance = new QRCode(p2pQrcodeContainer, {
+          text: p2pChunks[currentChunkIndex],
+          width: qrSize,
+          height: qrSize,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: correctLevel
+        });
+        
+        // Update counters and status
+        chunkCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
+        sendProgress.style.width = `${((currentChunkIndex + 1) / p2pChunks.length) * 100}%`;
+        sendStatus.textContent = `Sending chunk ${currentChunkIndex + 1} of ${p2pChunks.length}`;
+        p2pNavigation.style.display = 'flex';
+        
+        log('QR code successfully created');
+      } catch (qrError) {
+        log('Error creating QR code directly', { 
+          error: qrError.message, 
+          qrCodeType: typeof QRCode 
+        });
+        
+        // Try alternate method
+        displayCurrentChunk();
+      }
       
       // Start auto-slideshow
       const intervalSeconds = parseFloat(displayInterval.value);
@@ -1656,6 +1767,48 @@ function toggleManualNavigation() {
   }
 }
 
+// Fallback function to create QR code manually if the library fails
+function createFallbackQRCode(container, text, width = 300, height = 300) {
+  log('Using fallback QR code creation', { textLength: text.length });
+  
+  try {
+    // Create a simple canvas and render text as visible content
+    const div = document.createElement('div');
+    div.className = 'fallback-qr';
+    div.style.width = width + 'px';
+    div.style.height = height + 'px';
+    div.style.backgroundColor = '#fff';
+    div.style.color = '#000';
+    div.style.padding = '10px';
+    div.style.boxSizing = 'border-box';
+    div.style.overflow = 'hidden';
+    div.style.textAlign = 'center';
+    
+    // Add a header
+    const header = document.createElement('div');
+    header.textContent = 'QR DATA:';
+    header.style.fontWeight = 'bold';
+    header.style.marginBottom = '5px';
+    div.appendChild(header);
+    
+    // Add the text content (first 100 chars)
+    const content = document.createElement('div');
+    content.textContent = text.substring(0, 100) + (text.length > 100 ? '...' : '');
+    content.style.fontSize = '10px';
+    content.style.wordBreak = 'break-all';
+    div.appendChild(content);
+    
+    // Clear container and append div
+    container.innerHTML = '';
+    container.appendChild(div);
+    
+    return true;
+  } catch (error) {
+    log('Error in fallback QR creation', { error: error.message });
+    return false;
+  }
+}
+
 function displayCurrentChunk() {
   // Make sure we have chunks
   if (!p2pChunks || !p2pChunks.length) {
@@ -1714,20 +1867,68 @@ function displayCurrentChunk() {
       correctLevel = QRCode.CorrectLevel.M;
     }
     
-    // Create new QR code with appropriate settings
-    if (typeof QRCode !== 'function') {
-      throw new Error('QRCode library not loaded correctly');
+    // Check if QRCode library is available
+    if (typeof QRCode === 'undefined') {
+      console.error('QRCode is undefined');
+      log('QRCode library is not loaded correctly');
+      
+      // Try fallback method instead of throwing error
+      if (createFallbackQRCode(
+        p2pQrcodeContainer, 
+        p2pChunks[currentChunkIndex], 
+        qrSize, 
+        qrSize
+      )) {
+        log('Using fallback QR display method');
+      } else {
+        throw new Error('QRCode library not loaded and fallback failed');
+      }
+    } else {
+      log('QRCode type:', { type: typeof QRCode });
+      
+      try {
+        // Reset the container first to ensure clean state
+        p2pQrcodeContainer.innerHTML = '';
+        
+        // Create new QR code with the current chunk
+        p2pQrInstance = new QRCode(p2pQrcodeContainer, {
+          text: p2pChunks[currentChunkIndex],
+          width: qrSize,
+          height: qrSize,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: correctLevel
+        });
+        
+        // Double check that QR code was created
+        if (!p2pQrcodeContainer.querySelector('img')) {
+          log('QR code did not render an image element');
+          
+          // Try fallback method if no image was created
+          createFallbackQRCode(
+            p2pQrcodeContainer, 
+            p2pChunks[currentChunkIndex], 
+            qrSize, 
+            qrSize
+          );
+        }
+      } catch (qrError) {
+        log('Error creating QR code instance', {
+          error: qrError.message,
+          chunk: p2pChunks[currentChunkIndex].substring(0, 30) + '...'
+        });
+        
+        // Try fallback method
+        if (!createFallbackQRCode(
+          p2pQrcodeContainer, 
+          p2pChunks[currentChunkIndex], 
+          qrSize, 
+          qrSize
+        )) {
+          throw qrError;
+        }
+      }
     }
-    
-    // Create new QR code with the current chunk
-    p2pQrInstance = new QRCode(p2pQrcodeContainer, {
-      text: p2pChunks[currentChunkIndex],
-      width: qrSize,
-      height: qrSize,
-      colorDark: "#000000",
-      colorLight: "#ffffff",
-      correctLevel: correctLevel
-    });
     
     // Update counter
     chunkCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
