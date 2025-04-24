@@ -230,6 +230,20 @@ function setupEventListeners() {
     }
   });
   
+  // Update received data preview when password changes for P2P mode
+  p2pReceivePassword.addEventListener('input', () => {
+    // If we have partial chunks and at least one is encrypted, update display with password
+    if (Object.keys(receivedChunks).length > 0 && 
+        Object.values(receivedChunks).some(chunk => chunk.data.startsWith('ENCRYPTED:'))) {
+      
+      // Remove the highlight once user starts typing
+      p2pReceivePassword.classList.remove('needs-password'); 
+      
+      // Update display with new password
+      updatePartialReceivedData();
+    }
+  });
+  
   startCameraBtn.addEventListener('click', startCamera);
   stopCameraBtn.addEventListener('click', stopCamera);
   takePhotoBtn.addEventListener('click', takePhoto);
@@ -1392,6 +1406,9 @@ function showNextChunkAuto() {
 async function startReceiving() {
   // Set debug visible to help troubleshoot camera issues
   debugInfo.style.display = 'block';
+  
+  // Clear any password highlighting
+  p2pReceivePassword.classList.remove('needs-password');
   try {
     log('Starting P2P receiving...');
     receiveStatus.textContent = 'Requesting camera access...';
@@ -1588,6 +1605,10 @@ async function processP2PChunk(data) {
     if (totalExpectedChunks === 0) {
       totalExpectedChunks = totalChunks;
       log('Detected multi-part transfer', {totalChunks});
+      
+      // Initialize the textarea and show download button for the streaming data
+      receivedData.value = '';
+      downloadReceivedBtn.style.display = 'block';
     }
     
     // Skip if we already have this chunk
@@ -1612,78 +1633,204 @@ async function processP2PChunk(data) {
     
     log('Chunk received', {number: chunkNumber, total: totalChunks, count: receivedCount});
     
+    // Stream the partial data as we receive it
+    updatePartialReceivedData();
+    
     // Check if we have all chunks
     if (receivedCount === totalChunks) {
-      await assembleAndDecryptData();
+      await assembleAndDecryptData(true); // true = final assembly
     }
   } catch (error) {
     log('Chunk processing error', {error: error.message});
   }
 }
 
-async function assembleAndDecryptData() {
+// Function to update the received data in real-time as chunks arrive
+function updatePartialReceivedData() {
+  try {
+    // Only proceed if we have expected chunks
+    if (totalExpectedChunks === 0) return;
+    
+    // Check if we have an encryption prefix in any chunk (first chunk should have it)
+    const isEncrypted = receivedChunks[1] ? 
+      receivedChunks[1].data.startsWith('ENCRYPTED:') : 
+      Object.values(receivedChunks).some(chunk => chunk.data.startsWith('ENCRYPTED:'));
+    
+    // If encrypted and no password, show a placeholder
+    if (isEncrypted && !p2pReceivePassword.value) {
+      receivedData.value = '[Encrypted data - Enter password to view]';
+      
+      // Highlight password field to prompt user
+      p2pReceivePassword.classList.add('needs-password');
+      p2pReceivePassword.focus();
+      return;
+    }
+    
+    // Sort chunks by chunk number
+    const sortedChunkNumbers = Object.keys(receivedChunks)
+      .map(Number)
+      .sort((a, b) => a - b);
+    
+    // Collect chunk data in order, marking missing chunks
+    let partialData = '';
+    const receivedRanges = [];
+    let currentRange = { start: null, end: null };
+    
+    for (let i = 1; i <= totalExpectedChunks; i++) {
+      if (receivedChunks[i]) {
+        // Start a new range if needed
+        if (currentRange.start === null) {
+          currentRange.start = i;
+        }
+        currentRange.end = i;
+      } else if (currentRange.start !== null) {
+        // End of a range, store it
+        receivedRanges.push({...currentRange});
+        currentRange = { start: null, end: null };
+      }
+    }
+    
+    // Add the last range if it's open
+    if (currentRange.start !== null) {
+      receivedRanges.push({...currentRange});
+    }
+    
+    // Build received data from chunks in received ranges
+    for (const range of receivedRanges) {
+      for (let i = range.start; i <= range.end; i++) {
+        partialData += receivedChunks[i].data;
+      }
+      // Add a separator between non-consecutive ranges
+      if (range !== receivedRanges[receivedRanges.length - 1]) {
+        partialData += '\n[...missing data...]\n';
+      }
+    }
+    
+    // If we need decryption and have a password, try to decrypt partial data
+    if (isEncrypted && p2pReceivePassword.value) {
+      try {
+        // Create a temporary encrypted version with proper prefix
+        const tempEncrypted = 'ENCRYPTED:' + partialData;
+        const decrypted = decryptData(tempEncrypted, p2pReceivePassword.value);
+        receivedData.value = decrypted + '\n[Streaming partial data - continue scanning...]';
+      } catch (error) {
+        // Decryption failed - show raw data
+        receivedData.value = partialData + '\n[Encrypted data - continue scanning...]';
+      }
+    } else {
+      // Show raw data for non-encrypted content
+      receivedData.value = partialData + '\n[Streaming partial data - continue scanning...]';
+    }
+    
+    // Scroll to the bottom
+    receivedData.scrollTop = receivedData.scrollHeight;
+  } catch (error) {
+    log('Error updating partial data', {error: error.message});
+  }
+}
+
+async function assembleAndDecryptData(isFinalAssembly = false) {
   try {
     log('Assembling chunks...');
     
     // Sort chunks by number
     const sortedChunks = [];
     let md5Hash = null;
+    let missingChunks = [];
     
+    // Check for missing chunks and collect data
     for (let i = 1; i <= totalExpectedChunks; i++) {
       if (!receivedChunks[i]) {
-        receiveStatus.textContent = `Missing chunk ${i}. Please continue scanning.`;
-        log('Missing chunk', {number: i});
-        return;
+        missingChunks.push(i);
+        if (isFinalAssembly) {
+          receiveStatus.textContent = `Missing chunk ${i}. Please continue scanning.`;
+          log('Missing chunk', {number: i});
+        }
+      } else {
+        sortedChunks.push(receivedChunks[i].data);
+        
+        // Store MD5 hash from any chunk (they should all be the same)
+        if (!md5Hash) {
+          md5Hash = receivedChunks[i].md5;
+        }
       }
-      sortedChunks.push(receivedChunks[i].data);
-      
-      // Store MD5 hash from any chunk (they should all be the same)
-      if (!md5Hash) {
-        md5Hash = receivedChunks[i].md5;
-      }
+    }
+    
+    // If it's the final assembly and we're missing chunks, return early
+    if (isFinalAssembly && missingChunks.length > 0) {
+      return;
     }
     
     // Combine all chunks
     const combinedData = sortedChunks.join('');
     
-    // Verify MD5 hash for data integrity
-    const computedMD5 = generateMD5(combinedData);
-    log('Verifying data integrity', {expected: md5Hash, computed: computedMD5});
-    
-    if (computedMD5 !== md5Hash) {
-      receiveStatus.textContent = 'Error: Data integrity check failed. MD5 checksums do not match.';
-      log('MD5 verification failed', {expected: md5Hash, computed: computedMD5});
-      return;
+    // Verify MD5 hash for data integrity in final assembly
+    if (isFinalAssembly) {
+      const computedMD5 = generateMD5(combinedData);
+      log('Verifying data integrity', {expected: md5Hash, computed: computedMD5});
+      
+      if (computedMD5 !== md5Hash) {
+        receiveStatus.textContent = 'Error: Data integrity check failed. MD5 checksums do not match.';
+        log('MD5 verification failed', {expected: md5Hash, computed: computedMD5});
+        return;
+      }
     }
     
     // Decrypt if needed
     const password = p2pReceivePassword.value;
     let finalData = combinedData;
     
-    if (combinedData.startsWith('ENCRYPTED:') && password) {
-      log('Decrypting data...');
-      try {
-        finalData = decryptData(combinedData, password);
-      } catch (error) {
-        receiveStatus.textContent = 'Error: Incorrect password for encrypted data';
-        log('Decryption error', {error: error.message});
+    // For the final assembly, handle encryption comprehensively
+    if (isFinalAssembly) {
+      if (combinedData.startsWith('ENCRYPTED:') && password) {
+        log('Decrypting complete data...');
+        try {
+          finalData = decryptData(combinedData, password);
+        } catch (error) {
+          receiveStatus.textContent = 'Error: Incorrect password for encrypted data';
+          log('Decryption error', {error: error.message});
+          return;
+        }
+      } else if (combinedData.startsWith('ENCRYPTED:') && !password) {
+        receiveStatus.textContent = 'This data is encrypted. Please enter the password.';
+        p2pReceivePassword.classList.add('needs-password');
+        p2pReceivePassword.focus();
+        log('Password required for encrypted data');
         return;
       }
-    } else if (combinedData.startsWith('ENCRYPTED:') && !password) {
-      receiveStatus.textContent = 'This data is encrypted. Please enter the password.';
-      log('Password required for encrypted data');
-      return;
+    } else {
+      // For partial assembly, attempt decryption only if we have a password
+      if (combinedData.startsWith('ENCRYPTED:') && password) {
+        try {
+          finalData = decryptData(combinedData, password);
+        } catch (error) {
+          // Silently fail for partial decryption - we'll try again when we have more chunks
+          finalData = combinedData;
+        }
+      }
     }
     
     // Display the data
-    receivedData.value = finalData;
-    receiveStatus.textContent = 'Transfer complete! All chunks received and verified.';
-    downloadReceivedBtn.style.display = 'block';
-    
-    log('Data successfully assembled and decoded', {size: finalData.length});
-    
-    // Stop receiving
-    stopReceiving();
+    if (isFinalAssembly) {
+      // For final assembly, show the complete data and mark as done
+      receivedData.value = finalData;
+      receiveStatus.textContent = 'Transfer complete! All chunks received and verified.';
+      p2pReceivePassword.classList.remove('needs-password');
+      
+      log('Data successfully assembled and decoded', {size: finalData.length});
+      
+      // Stop receiving - only for final assembly
+      stopReceiving();
+    } else {
+      // For partial assembly, update the display but don't stop scanning
+      receivedData.value = finalData + 
+        (missingChunks.length > 0 ? 
+          `\n\n[${missingChunks.length} chunks still missing...]` : 
+          '\n\n[All chunks received, verifying...]');
+      
+      // Scroll to the bottom
+      receivedData.scrollTop = receivedData.scrollHeight;
+    }
   } catch (error) {
     receiveStatus.textContent = `Error assembling data: ${error.message}`;
     log('Assembly error', {error: error.message});
