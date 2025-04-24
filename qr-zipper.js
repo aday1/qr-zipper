@@ -517,11 +517,62 @@ function setupEventListeners() {
     floatingQrContainer.style.display = 'none';
   });
   
+  // Function to optimize QR display for fullscreen
+  function optimizeQrForFullscreen() {
+    const qrImg = floatingQrContent.querySelector('img');
+    if (!qrImg) return;
+    
+    fullscreenQrContent.innerHTML = '';
+    const optimizedQr = qrImg.cloneNode(true);
+    
+    // Remove hardcoded dimensions to allow responsive sizing
+    optimizedQr.removeAttribute('width');
+    optimizedQr.removeAttribute('height');
+    optimizedQr.style.width = 'auto';
+    optimizedQr.style.height = 'auto';
+    
+    // Adjust for orientation
+    const isLandscape = window.innerWidth > window.innerHeight;
+    const maxSize = Math.min(window.innerWidth, window.innerHeight) * 0.7;
+    
+    if (isLandscape) {
+      optimizedQr.style.height = `${maxSize}px`;
+      optimizedQr.style.maxHeight = `${maxSize}px`;
+    } else {
+      optimizedQr.style.width = `${maxSize}px`;
+      optimizedQr.style.maxWidth = `${maxSize}px`;
+    }
+    
+    fullscreenQrContent.appendChild(optimizedQr);
+    log('Optimized QR for fullscreen', { orientation: isLandscape ? 'landscape' : 'portrait', maxSize });
+  }
+
+  // Add orientation change event listener
+  window.addEventListener('orientationchange', () => {
+    // Short delay to ensure screen dimensions are updated
+    setTimeout(() => {
+      if (fullscreenQr.style.display === 'flex') {
+        optimizeQrForFullscreen();
+      }
+    }, 100);
+  });
+
+  // Also handle resize events for desktop
+  window.addEventListener('resize', () => {
+    if (fullscreenQr.style.display === 'flex') {
+      // Debounce resize handler
+      clearTimeout(window.resizeTimer);
+      window.resizeTimer = setTimeout(optimizeQrForFullscreen, 200);
+    }
+  });
+
   fullscreenQrBtn.addEventListener('click', () => {
-    // Copy current QR content to fullscreen
-    fullscreenQrContent.innerHTML = floatingQrContent.innerHTML;
-    fullscreenQrCounter.textContent = floatingQrCounter.textContent;
+    // Show fullscreen container
     fullscreenQr.style.display = 'flex';
+    fullscreenQrCounter.textContent = floatingQrCounter.textContent;
+    
+    // Optimize QR for current screen
+    optimizeQrForFullscreen();
   });
   
   fullscreenQrClose.addEventListener('click', () => {
@@ -1986,11 +2037,9 @@ function displayCurrentChunk() {
       
       // If fullscreen is active, update it too
       if (fullscreenQr.style.display === 'flex') {
-        fullscreenQrContent.innerHTML = '';
-        const fullscreenClone = qrElement.cloneNode(true);
-        fullscreenClone.style.maxWidth = '100%';
-        fullscreenQrContent.appendChild(fullscreenClone);
         fullscreenQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
+        // Use the optimized fullscreen display function
+        optimizeQrForFullscreen();
       }
     } else if (p2pQrcodeContainer.querySelector('.fallback-qr')) {
       // Handle fallback QR display
@@ -2004,11 +2053,21 @@ function displayCurrentChunk() {
       
       // Update fullscreen too if active
       if (fullscreenQr.style.display === 'flex') {
+        fullscreenQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
+        // For fallback, we need special handling as optimizeQrForFullscreen expects an img
         fullscreenQrContent.innerHTML = '';
         const fullscreenClone = fallbackQr.cloneNode(true);
-        fullscreenClone.style.maxWidth = '100%';
+        
+        // Adjust for orientation
+        const isLandscape = window.innerWidth > window.innerHeight;
+        const maxSize = Math.min(window.innerWidth, window.innerHeight) * 0.7;
+        
+        fullscreenClone.style.maxWidth = isLandscape ? 'auto' : `${maxSize}px`;
+        fullscreenClone.style.maxHeight = isLandscape ? `${maxSize}px` : 'auto';
+        fullscreenClone.style.width = isLandscape ? 'auto' : `${maxSize}px`;
+        fullscreenClone.style.height = isLandscape ? `${maxSize}px` : 'auto';
+        
         fullscreenQrContent.appendChild(fullscreenClone);
-        fullscreenQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
       }
     }
     
