@@ -294,6 +294,17 @@ input[type="range"] {
   border-color: var(--info);
 }
 
+/* Highlight the password field when needed */
+.needs-password {
+  animation: pulse-border 2s infinite;
+}
+
+@keyframes pulse-border {
+  0% { border-color: var(--info); }
+  50% { border-color: var(--terminal-green); box-shadow: 0 0 8px var(--terminal-green); }
+  100% { border-color: var(--info); }
+}
+
 /* Progress Bars */
 .progress-container {
   width: 100%;

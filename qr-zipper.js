@@ -108,6 +108,29 @@ function initZXing() {
   try {
     codeReader = new ZXing.BrowserMultiFormatReader();
     console.log('ZXing library initialized');
+    
+    // Add our own wrapper for decoding from ImageData for compatibility
+    // Some versions of ZXing have different API methods
+    if (!codeReader.decodeFromImageData) {
+      codeReader.decodeFromImageData = function(imageData) {
+        try {
+          // Try different methods based on ZXing version 
+          if (typeof ZXing.HTMLCanvasElementLuminanceSource !== 'undefined') {
+            // Newer ZXing versions
+            const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(imageData);
+            const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+            return Promise.resolve(this.decode(binaryBitmap));
+          } else {
+            // Fallback for other versions
+            return this.decodeFromImage(undefined, imageData);
+          }
+        } catch (error) {
+          return Promise.reject(error);
+        }
+      };
+    }
+    
+    log('ZXing library initialized and extended with compatibility methods');
   } catch (error) {
     console.error('Error initializing ZXing:', error);
   }
@@ -135,6 +158,9 @@ function log(message, obj = null) {
 function setupEventListeners() {
   // Initially disable the decode button until an image is loaded
   decodeQrBtn.disabled = true;
+  
+  // Initialize window.encryptedQRData for storing encrypted data while waiting for password
+  window.encryptedQRData = null;
   // Tab switching
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
@@ -196,6 +222,13 @@ function setupEventListeners() {
   clearDecodeBtn.addEventListener('click', clearDecode);
   downloadQrBtn.addEventListener('click', downloadQRCode);
   downloadDecodedBtn.addEventListener('click', () => downloadTextFile(decodeOutput, 'decoded-data.txt'));
+  
+  // Trigger decode on Enter in password field
+  decodePassword.addEventListener('keyup', (event) => {
+    if (event.key === 'Enter' && window.encryptedQRData) {
+      decodeQRFromFile();
+    }
+  });
   
   startCameraBtn.addEventListener('click', startCamera);
   stopCameraBtn.addEventListener('click', stopCamera);
@@ -932,23 +965,8 @@ function decodeQRFromCanvas(canvas) {
     const context = canvas.getContext('2d');
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
     
-    // Use ZXing to decode
-    codeReader.decodeFromImageData(imageData)
-      .then(result => {
-        if (result) {
-          log('QR code detected in canvas', {format: result.format});
-          processQRCodeResult(result.text);
-        } else {
-          decodeMessage.textContent = 'No QR code found in image';
-          decodeMessage.className = 'message error';
-          log('No QR code found in canvas');
-        }
-      })
-      .catch(error => {
-        decodeMessage.textContent = 'Failed to decode QR code';
-        decodeMessage.className = 'message error';
-        log('Canvas decode error', {error: error.message});
-      });
+    // Try multiple methods to decode the QR code
+    decodeWithMultipleMethods(canvas, imageData);
   } catch (error) {
     decodeMessage.textContent = `Error processing image: ${error.message}`;
     decodeMessage.className = 'message error';
@@ -956,7 +974,85 @@ function decodeQRFromCanvas(canvas) {
   }
 }
 
+// Try multiple decoding methods for better compatibility across ZXing versions
+function decodeWithMultipleMethods(canvas, imageData) {
+  log('Attempting to decode with multiple methods...');
+  
+  // Method 1: Try decodeFromImageData (our wrapper function)
+  tryDecodeMethod(() => codeReader.decodeFromImageData(imageData), 'decodeFromImageData')
+    .catch(() => {
+      // Method 2: Try decoding using canvas element
+      return tryDecodeMethod(() => codeReader.decodeFromImage(canvas), 'decodeFromImage with canvas');
+    })
+    .catch(() => {
+      // Method 3: Create a new image from the canvas and try with that
+      const img = new Image();
+      img.src = canvas.toDataURL();
+      return new Promise((resolve, reject) => {
+        img.onload = () => {
+          tryDecodeMethod(() => codeReader.decodeFromImage(img), 'decodeFromImage with Image')
+            .then(resolve)
+            .catch(reject);
+        };
+        img.onerror = reject;
+      });
+    })
+    .catch(() => {
+      // Method 4: Try with a plain bitmap
+      if (typeof ZXing.HTMLCanvasElementLuminanceSource !== 'undefined') {
+        try {
+          const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+          const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+          return tryDecodeMethod(() => Promise.resolve(codeReader.decode(binaryBitmap)), 'direct bitmap decode');
+        } catch (e) {
+          return Promise.reject(e);
+        }
+      }
+      return Promise.reject(new Error('All decoding methods failed'));
+    })
+    .catch(error => {
+      decodeMessage.textContent = 'No QR code could be found in the image';
+      decodeMessage.className = 'message error';
+      log('All decode methods failed', {error: error.message});
+      
+      // Show debug info to help troubleshoot
+      debugInfo.style.display = 'block';
+    });
+}
+
+// Helper to try a specific decode method and process the result
+function tryDecodeMethod(decodeFn, methodName) {
+  return new Promise((resolve, reject) => {
+    try {
+      Promise.resolve(decodeFn())
+        .then(result => {
+          if (result) {
+            log(`QR code detected using ${methodName}`, {format: result.format || 'unknown'});
+            processQRCodeResult(result.text);
+            resolve(result);
+          } else {
+            reject(new Error(`No result with ${methodName}`));
+          }
+        })
+        .catch(error => {
+          log(`Method ${methodName} failed`, {error: error.message});
+          reject(error);
+        });
+    } catch (error) {
+      log(`Error in ${methodName}`, {error: error.message});
+      reject(error);
+    }
+  });
+}
+
 function decodeQRFromFile() {
+  // If we already have stored encrypted data and password is provided, process it directly
+  if (window.encryptedQRData && decodePassword.value) {
+    log('Processing stored encrypted data with provided password');
+    processQRCodeResult(window.encryptedQRData);
+    return;
+  }
+  
   const img = imagePreview.querySelector('img');
   if (!img) {
     decodeMessage.textContent = 'Please select a QR code image first';
@@ -969,32 +1065,16 @@ function decodeQRFromFile() {
   decodeMessage.className = 'message info';
   
   try {
-    // Use ZXing to decode
-    codeReader.decodeFromImageElement(img)
-      .then(result => {
-        if (result) {
-          log('QR code detected in image', {format: result.format});
-          processQRCodeResult(result.text);
-        } else {
-          // Try alternate method
-          log('ZXing failed to detect QR code, trying alternate method');
-          // Create a canvas for fallback
-          const canvas = document.createElement('canvas');
-          canvas.width = img.naturalWidth;
-          canvas.height = img.naturalHeight;
-          canvas.getContext('2d').drawImage(img, 0, 0);
-          decodeQRFromCanvas(canvas);
-        }
-      })
-      .catch(error => {
-        // Try alternate method
-        log('ZXing decode error, trying alternate method', {error: error.message});
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        canvas.getContext('2d').drawImage(img, 0, 0);
-        decodeQRFromCanvas(canvas);
-      });
+    // Create canvas from image for more reliable decoding
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    
+    // Try all our decoding methods using the canvas
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    decodeWithMultipleMethods(canvas, imageData);
   } catch (error) {
     decodeMessage.textContent = `Error decoding QR code: ${error.message}`;
     decodeMessage.className = 'message error';
@@ -1026,15 +1106,38 @@ function processQRCodeResult(data) {
       const isEncrypted = data.startsWith('ENCRYPTED:');
       
       if (isEncrypted && !password) {
-        decodeMessage.textContent = 'This QR code is encrypted. Please enter the password.';
+        decodeMessage.textContent = 'This QR code is encrypted. Please enter the password and click "Decode QR Code" again.';
         decodeMessage.className = 'message info';
-        log('Encrypted QR code detected, waiting for password');
+        
+        // Highlight the password field to make it clear that input is needed
+        decodePassword.classList.add('needs-password');
+        decodePassword.focus();
+        
+        // Re-enable the decode button since we need it clicked again
+        decodeQrBtn.disabled = false;
+        
+        // Store the encrypted data for later decryption when password is provided
+        if (!window.encryptedQRData) {
+          window.encryptedQRData = data;
+          log('Encrypted QR code stored, waiting for password input');
+        }
         return;
       }
       
-      // Decrypt if needed
-      const decryptedData = password ? decryptData(data, password) : data;
+      // Remove highlight if we're past the password stage
+      decodePassword.classList.remove('needs-password');
       
+      // Use stored encrypted data if available, otherwise use the current data
+      const dataToDecrypt = (isEncrypted || window.encryptedQRData) ? (window.encryptedQRData || data) : data;
+      
+      // Decrypt if needed
+      const decryptedData = (isEncrypted || window.encryptedQRData) && password ? 
+                            decryptData(dataToDecrypt, password) : dataToDecrypt;
+      
+      // Clear the stored encrypted data
+      window.encryptedQRData = null;
+      
+      // Display the decrypted data
       decodeOutput.value = decryptedData;
       decodeMessage.textContent = 'QR code decoded successfully';
       decodeMessage.className = 'message success';
@@ -1074,6 +1177,7 @@ function clearDecode() {
   downloadDecodedBtn.style.display = 'none';
   imagePreview.innerHTML = '';
   decodeQrBtn.disabled = true; // Disable decode button when cleared
+  window.encryptedQRData = null; // Clear any stored encrypted data
   log('Decode form cleared');
 }
 
