@@ -68,6 +68,8 @@ const p2pInput = document.getElementById('p2p-input');
 const p2pPassword = document.getElementById('p2p-password');
 const startTransferBtn = document.getElementById('start-transfer');
 const stopTransferBtn = document.getElementById('stop-transfer');
+const pauseTransferBtn = document.getElementById('pause-transfer');
+const resumeTransferBtn = document.getElementById('resume-transfer');
 const manualNavBtn = document.getElementById('manual-nav');
 const p2pQrcodeContainer = document.getElementById('p2p-qrcode');
 const sendProgress = document.getElementById('send-progress');
@@ -115,6 +117,7 @@ let selectedP2PCamera = null;
 let p2pChunks = [];
 let currentChunkIndex = 0;
 let transferActive = false;
+let transferPaused = false;
 let autoPlayInterval = null;
 let receivedChunks = {};
 let totalExpectedChunks = 0;
@@ -281,6 +284,8 @@ function setupEventListeners() {
   
   startTransferBtn.addEventListener('click', startTransfer);
   stopTransferBtn.addEventListener('click', stopTransfer);
+  pauseTransferBtn.addEventListener('click', pauseTransfer);
+  resumeTransferBtn.addEventListener('click', resumeTransfer);
   manualNavBtn.addEventListener('click', toggleManualNavigation);
   prevChunkBtn.addEventListener('click', showPreviousChunk);
   nextChunkBtn.addEventListener('click', showNextChunk);
@@ -1666,6 +1671,8 @@ function startTransfer() {
       startTransferBtn.disabled = false;
       startTransferBtn.textContent = 'Start Transfer';
       stopTransferBtn.style.display = 'inline-block';
+      pauseTransferBtn.style.display = 'inline-block';
+      resumeTransferBtn.style.display = 'none';
       manualNavBtn.style.display = 'inline-block';
       
       transferActive = true;
@@ -1736,6 +1743,8 @@ function startTransfer() {
       startTransferBtn.disabled = false;
       startTransferBtn.textContent = 'Start Transfer';
       stopTransferBtn.style.display = 'none';
+      pauseTransferBtn.style.display = 'none';
+      resumeTransferBtn.style.display = 'none';
       manualNavBtn.style.display = 'none';
     }
   }, 10); // Small delay to let UI update
@@ -1752,10 +1761,13 @@ function stopTransfer() {
   
   // Mark transfer as inactive
   transferActive = false;
+  transferPaused = false;
   
   // Update UI
   startTransferBtn.style.display = 'inline-block';
   stopTransferBtn.style.display = 'none';
+  pauseTransferBtn.style.display = 'none';
+  resumeTransferBtn.style.display = 'none';
   manualNavBtn.style.display = 'none';
   p2pNavigation.style.display = 'none';
   
@@ -1777,6 +1789,92 @@ function stopTransfer() {
     chunksInMemory: p2pChunks ? p2pChunks.length : 0,
     lastIndex: currentChunkIndex
   });
+}
+
+function pauseTransfer() {
+  log('Pausing transfer');
+  
+  // Clear auto-advancing
+  if (autoPlayInterval) {
+    clearInterval(autoPlayInterval);
+    autoPlayInterval = null;
+  }
+  
+  // Mark transfer as paused but still active
+  transferPaused = true;
+  
+  // Update UI
+  pauseTransferBtn.style.display = 'none';
+  resumeTransferBtn.style.display = 'inline-block';
+  
+  // Update status
+  sendStatus.textContent = `Transfer paused at chunk ${currentChunkIndex + 1} of ${p2pChunks.length}`;
+  
+  log('Transfer paused', {
+    currentChunk: currentChunkIndex + 1,
+    totalChunks: p2pChunks.length
+  });
+}
+
+function resumeTransfer() {
+  log('Resuming transfer');
+  
+  // Mark transfer as active again
+  transferPaused = false;
+  
+  // Update UI
+  pauseTransferBtn.style.display = 'inline-block';
+  resumeTransferBtn.style.display = 'none';
+  
+  // Update status
+  sendStatus.textContent = `Resuming from chunk ${currentChunkIndex + 1} of ${p2pChunks.length}`;
+  
+  // Restart auto-slideshow
+  const intervalSeconds = parseFloat(displayInterval.value);
+  autoPlayInterval = setInterval(showNextChunkAuto, intervalSeconds * 1000);
+  
+  log('Transfer resumed', {
+    currentChunk: currentChunkIndex + 1,
+    totalChunks: p2pChunks.length,
+    interval: intervalSeconds
+  });
+}
+
+// Pause QR code transfer - keeps current state but stops auto-advancing
+function pauseTransfer() {
+  log('Pausing transfer');
+  
+  // Clear auto-advancing interval
+  if (autoPlayInterval) {
+    clearInterval(autoPlayInterval);
+    autoPlayInterval = null;
+  }
+  
+  // Keep transfer marked as active
+  // transferActive remains true
+  
+  // Update UI
+  pauseTransferBtn.style.display = 'none';
+  resumeTransferBtn.style.display = 'inline-block';
+  sendStatus.textContent = 'Transfer paused - current QR code remains visible';
+  
+  // Current QR code stays displayed
+  // Display current counter in case it wasn't updated
+  chunkCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
+}
+
+// Resume QR code transfer - restart auto-advancing from current position
+function resumeTransfer() {
+  log('Resuming transfer');
+  
+  // Restart auto-advancing from current position
+  const intervalSeconds = parseFloat(displayInterval.value) || 2;
+  autoPlayInterval = setInterval(showNextChunkAuto, intervalSeconds * 1000);
+  
+  // Update UI
+  pauseTransferBtn.style.display = 'inline-block';
+  resumeTransferBtn.style.display = 'none';
+  sendStatus.textContent = 'Transfer resumed - QR codes advancing automatically';
 }
 
 function toggleManualNavigation() {
@@ -2055,8 +2153,8 @@ function showNextChunk() {
 }
 
 function showNextChunkAuto() {
-  if (!transferActive || !p2pChunks || p2pChunks.length === 0) {
-    log('Auto advance skipped - transfer not active or no chunks');
+  if (!transferActive || transferPaused || !p2pChunks || p2pChunks.length === 0) {
+    log('Auto advance skipped - transfer not active, paused, or no chunks');
     return;
   }
   
