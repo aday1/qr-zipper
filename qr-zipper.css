@@ -163,6 +163,51 @@ select {
   font-style: italic;
 }
 
+/* Chunk size slider styling */
+.size-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 0.75rem;
+}
+
+.size-small {
+  color: var(--success);
+}
+
+.size-large {
+  color: var(--warning);
+}
+
+/* Slider styling */
+input[type="range"].form-control {
+  height: 15px;
+  -webkit-appearance: none;
+  background: var(--terminal-gray);
+  border-radius: 8px;
+  border: 1px solid var(--terminal-green);
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--terminal-green);
+  cursor: pointer;
+  border: 1px solid var(--terminal-dark-green);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--terminal-green);
+  cursor: pointer;
+  border: 1px solid var(--terminal-dark-green);
+}
+
 input[type="range"] {
   width: 100%;
   accent-color: var(--terminal-green);

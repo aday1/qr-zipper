@@ -3,13 +3,9 @@
 const MAX_QR_CAPACITY = 2953; // Maximum bytes for QR code
 const MAX_CHUNK_SIZE = 2900; // Standard chunk size (slightly less than capacity to account for metadata)
 
-// Custom chunk sizes
-const CHUNK_SIZES = {
-  standard: 2900, // Standard size - maximum capacity
-  medium: 1500,   // Medium size - better reliability
-  small: 800,     // Small size - good for most cameras
-  tiny: 400       // Tiny size - most reliable but many chunks
-};
+// Chunk size constants
+const MAX_CHUNK_SIZE_BYTES = 2900;   // Maximum chunk size
+const MIN_CHUNK_SIZE_BYTES = 100;    // Minimum viable chunk size for QR codes
 
 // DOM Elements - General
 const tabs = document.querySelectorAll('.tabs .tab');
@@ -90,7 +86,8 @@ const chunkStatus = document.getElementById('chunk-status');
 const receivedData = document.getElementById('received-data');
 const downloadReceivedBtn = document.getElementById('download-received');
 const p2pFileInfo = document.getElementById('p2p-file-info');
-const chunkSizeSelect = document.getElementById('chunk-size');
+const chunkSizeSlider = document.getElementById('chunk-size-slider');
+const chunkSizeValue = document.getElementById('chunk-size-value');
 
 // Global variables
 let qrInstance = null;
@@ -370,10 +367,23 @@ function setupEventListeners() {
     intervalValue.textContent = displayInterval.value + 's';
   });
   
-  // Update chunk size information
-  chunkSizeSelect.addEventListener('change', () => {
+  // Update chunk size information when slider changes
+  chunkSizeSlider.addEventListener('input', () => {
+    const selectedSize = parseInt(chunkSizeSlider.value);
+    chunkSizeValue.textContent = `${selectedSize} bytes`;
     updateCapacityInfo();
-    log('Chunk size changed', {size: chunkSizeSelect.value});
+    log('Chunk size changed', {size: selectedSize});
+    
+    // Change color based on size
+    if (selectedSize <= 300) {
+      chunkSizeValue.style.color = 'var(--success)';  // Green for small sizes
+    } else if (selectedSize <= 1000) {
+      chunkSizeValue.style.color = 'var(--terminal-green)';  // Normal for medium
+    } else if (selectedSize <= 2000) {
+      chunkSizeValue.style.color = 'var(--info)';  // Blue for larger
+    } else {
+      chunkSizeValue.style.color = 'var(--warning)';  // Yellow/orange for largest
+    }
   });
   
   // Input events for capacity check
@@ -800,9 +810,8 @@ function updateCapacityInfo() {
       encodeProgress.className = 'progress-bar';
     }
   } else {
-    // For P2P tab, get the currently selected chunk size
-    const selectedSizeOption = chunkSizeSelect.value;
-    const selectedChunkSize = CHUNK_SIZES[selectedSizeOption] || MAX_CHUNK_SIZE;
+    // For P2P tab, get the currently selected chunk size from slider
+    const selectedChunkSize = parseInt(chunkSizeSlider.value);
     
     // Calculate estimated metadata size and effective chunk size
     const metadataEstimate = 50; // Rough estimate for metadata
@@ -810,9 +819,24 @@ function updateCapacityInfo() {
     
     if (dataSize > MAX_QR_CAPACITY) {
       const estimatedChunks = Math.ceil(dataSize / effectiveChunkSize);
-      sendStatus.textContent = `Using ${selectedSizeOption} chunks (${selectedChunkSize} bytes): Will create ${estimatedChunks} QR codes`;
+      
+      // Add warning for very high chunk counts
+      let statusMessage = `Using ${selectedChunkSize} byte chunks: Will create ${estimatedChunks} QR codes`;
+      
+      if (estimatedChunks > 50) {
+        statusMessage += ` (WARNING: High number of codes!)`;
+        sendStatus.className = 'warning';
+      } else if (estimatedChunks > 20) {
+        statusMessage += ` (Note: Moderate number of codes)`;
+        sendStatus.className = '';
+      } else {
+        sendStatus.className = '';
+      }
+      
+      sendStatus.textContent = statusMessage;
     } else {
       sendStatus.textContent = `Data size: ${dataSize} bytes (fits in a single QR code)`;
+      sendStatus.className = '';
     }
   }
 }
@@ -1407,9 +1431,8 @@ function splitIntoChunks(data, password = '') {
   const md5Hash = generateMD5(processedData);
   log('Generated MD5 hash for data', {hash: md5Hash});
   
-  // Get selected chunk size from dropdown
-  const selectedSizeOption = chunkSizeSelect.value;
-  const selectedChunkSize = CHUNK_SIZES[selectedSizeOption] || MAX_CHUNK_SIZE;
+  // Get selected chunk size from slider
+  const selectedChunkSize = parseInt(chunkSizeSlider.value);
   
   // Calculate chunk size accounting for metadata
   // Format: [CHUNK_XXX_OF_XXX][MD5_32_CHARS]
@@ -1513,18 +1536,23 @@ function displayCurrentChunk() {
   let correctLevel = QRCode.CorrectLevel.L; // Default low correction
   let qrSize = 300; // Default size
   
-  // Get selected chunk size to determine optimal settings
-  const selectedChunkSize = CHUNK_SIZES[chunkSizeSelect.value] || MAX_CHUNK_SIZE;
+  // Get selected chunk size from slider
+  const selectedChunkSize = parseInt(chunkSizeSlider.value);
   
-  if (selectedChunkSize <= CHUNK_SIZES.tiny) {
-    // For tiny chunks, use highest error correction
+  // Set appropriate error correction level based on chunk size
+  if (selectedChunkSize <= 200) {
+    // For extremely small chunks, use highest error correction
+    correctLevel = QRCode.CorrectLevel.H;
+    qrSize = 340; // Larger size for better scanning
+  } else if (selectedChunkSize <= 400) {
+    // For very small chunks, use highest error correction
     correctLevel = QRCode.CorrectLevel.H;
     qrSize = 320; // Slightly larger
-  } else if (selectedChunkSize <= CHUNK_SIZES.small) {
+  } else if (selectedChunkSize <= 800) {
     // For small chunks, use medium-high error correction
     correctLevel = QRCode.CorrectLevel.Q;
     qrSize = 310;
-  } else if (selectedChunkSize <= CHUNK_SIZES.medium) {
+  } else if (selectedChunkSize <= 1500) {
     // For medium chunks, use medium error correction
     correctLevel = QRCode.CorrectLevel.M;
   }

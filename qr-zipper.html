@@ -164,14 +164,13 @@
         </div>
         
         <div class="form-group">
-          <label for="chunk-size">Chunk Size:</label>
-          <select id="chunk-size" class="form-control">
-            <option value="standard">Standard (2900 bytes)</option>
-            <option value="medium">Medium (1500 bytes)</option>
-            <option value="small">Small (800 bytes)</option>
-            <option value="tiny">Tiny (400 bytes)</option>
-          </select>
-          <p class="size-hint">Smaller chunks are easier to scan but create more QR codes.</p>
+          <label for="chunk-size-slider">Chunk Size: <span id="chunk-size-value">1500 bytes</span></label>
+          <input type="range" id="chunk-size-slider" min="100" max="2900" value="1500" step="100" class="form-control">
+          <div class="size-labels">
+            <span class="size-small">Tiny (More QR codes, easier to scan)</span>
+            <span class="size-large">Large (Fewer QR codes, harder to scan)</span>
+          </div>
+          <p class="size-hint">Smaller chunks are more reliable but create more QR codes. Very small chunks (below 300 bytes) may create many QR codes.</p>
         </div>
         
         <div class="button-group">
