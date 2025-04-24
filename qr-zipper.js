@@ -11,6 +11,17 @@ const MIN_CHUNK_SIZE_BYTES = 100;    // Minimum viable chunk size for QR codes
 const tabs = document.querySelectorAll('.tabs .tab');
 const tabContents = document.querySelectorAll('.tab-content');
 
+// Floating QR elements
+const floatingQrContainer = document.getElementById('floating-qr-container');
+const floatingQrClose = document.getElementById('floating-qr-close');
+const floatingQrContent = document.getElementById('floating-qr-content');
+const floatingQrCounter = document.getElementById('floating-qr-counter');
+const fullscreenQrBtn = document.getElementById('fullscreen-qr-btn');
+const fullscreenQr = document.getElementById('fullscreen-qr');
+const fullscreenQrContent = document.getElementById('fullscreen-qr-content');
+const fullscreenQrClose = document.getElementById('fullscreen-qr-close');
+const fullscreenQrCounter = document.getElementById('fullscreen-qr-counter');
+
 // DOM Elements - Encode
 const fileDropArea = document.getElementById('file-drop');
 const fileInput = document.getElementById('file-input');
@@ -500,6 +511,22 @@ function setupEventListeners() {
   // Input events for capacity check
   encodeInput.addEventListener('input', updateCapacityInfo);
   p2pInput.addEventListener('input', updateCapacityInfo);
+  
+  // Floating QR code controls
+  floatingQrClose.addEventListener('click', () => {
+    floatingQrContainer.style.display = 'none';
+  });
+  
+  fullscreenQrBtn.addEventListener('click', () => {
+    // Copy current QR content to fullscreen
+    fullscreenQrContent.innerHTML = floatingQrContent.innerHTML;
+    fullscreenQrCounter.textContent = floatingQrCounter.textContent;
+    fullscreenQr.style.display = 'flex';
+  });
+  
+  fullscreenQrClose.addEventListener('click', () => {
+    fullscreenQr.style.display = 'none';
+  });
 }
 
 
@@ -1742,6 +1769,10 @@ function stopTransfer() {
   sendStatus.textContent = 'Transfer stopped';
   p2pQrcodeContainer.innerHTML = '';
   
+  // Hide floating QR displays
+  floatingQrContainer.style.display = 'none';
+  fullscreenQr.style.display = 'none';
+  
   // Keep chunks in memory for possible resume
   log('Transfer stopped', {
     chunksInMemory: p2pChunks ? p2pChunks.length : 0,
@@ -1941,6 +1972,45 @@ function displayCurrentChunk() {
     
     // Show the manual navigation (manual nav controls)
     p2pNavigation.style.display = 'flex';
+    
+    // Update floating QR display - clone the QR code element
+    const qrElement = p2pQrcodeContainer.querySelector('img');
+    if (qrElement) {
+      // Update floating QR container
+      floatingQrContent.innerHTML = '';
+      const clonedQr = qrElement.cloneNode(true);
+      clonedQr.style.maxWidth = '100%';
+      floatingQrContent.appendChild(clonedQr);
+      floatingQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
+      floatingQrContainer.style.display = 'block';
+      
+      // If fullscreen is active, update it too
+      if (fullscreenQr.style.display === 'flex') {
+        fullscreenQrContent.innerHTML = '';
+        const fullscreenClone = qrElement.cloneNode(true);
+        fullscreenClone.style.maxWidth = '100%';
+        fullscreenQrContent.appendChild(fullscreenClone);
+        fullscreenQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
+      }
+    } else if (p2pQrcodeContainer.querySelector('.fallback-qr')) {
+      // Handle fallback QR display
+      const fallbackQr = p2pQrcodeContainer.querySelector('.fallback-qr');
+      floatingQrContent.innerHTML = '';
+      const clonedFallback = fallbackQr.cloneNode(true);
+      clonedFallback.style.maxWidth = '100%';
+      floatingQrContent.appendChild(clonedFallback);
+      floatingQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
+      floatingQrContainer.style.display = 'block';
+      
+      // Update fullscreen too if active
+      if (fullscreenQr.style.display === 'flex') {
+        fullscreenQrContent.innerHTML = '';
+        const fullscreenClone = fallbackQr.cloneNode(true);
+        fullscreenClone.style.maxWidth = '100%';
+        fullscreenQrContent.appendChild(fullscreenClone);
+        fullscreenQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
+      }
+    }
     
     log('Successfully displayed chunk', {
       current: currentChunkIndex + 1, 

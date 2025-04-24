@@ -314,6 +314,25 @@
     <p>[QR-Zipper]::system_v2.5.0::encryption_enabled::2025</p>
   </footer>
 
+  <!-- Floating QR container (initially hidden) -->
+  <div id="floating-qr-container" class="floating-qr-container" style="display: none;">
+    <div class="qr-close" id="floating-qr-close">×</div>
+    <div class="qr-title">QR Code Transfer</div>
+    <div class="qr-counter" id="floating-qr-counter">0 / 0</div>
+    <div id="floating-qr-content"></div>
+    <button class="btn btn-secondary" id="fullscreen-qr-btn">Fullscreen</button>
+  </div>
+
+  <!-- Fullscreen QR container (initially hidden) -->
+  <div id="fullscreen-qr" class="fullscreen-qr" style="display: none;">
+    <div class="qr-content">
+      <div class="qr-title">QR Code Transfer</div>
+      <div id="fullscreen-qr-content"></div>
+      <div class="qr-counter" id="fullscreen-qr-counter">0 / 0</div>
+      <button class="btn" id="fullscreen-qr-close">Close Fullscreen</button>
+    </div>
+  </div>
+
   <!-- JavaScript File -->
   <script src="qr-zipper.js"></script>
 </body>
