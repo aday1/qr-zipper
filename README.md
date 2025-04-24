@@ -1,4 +1,4 @@
-
+Try it live @ https://aday1.github.io/qr-zipper/qr-zipper.html
 
 # QR Code Zipper & Unzipper
 
