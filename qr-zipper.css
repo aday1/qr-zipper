@@ -329,6 +329,12 @@ input[type="range"] {
   margin-bottom: 5px;
 }
 
+#open-qr-window {
+  display: inline-block;
+  margin-top: 10px;
+  text-decoration: none;
+}
+
 .floating-qr-container .qr-close {
   position: absolute;
   top: 5px;

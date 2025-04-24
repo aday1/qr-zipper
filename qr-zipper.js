@@ -16,7 +16,7 @@ const floatingQrContainer = document.getElementById('floating-qr-container');
 const floatingQrClose = document.getElementById('floating-qr-close');
 const floatingQrContent = document.getElementById('floating-qr-content');
 const floatingQrCounter = document.getElementById('floating-qr-counter');
-const fullscreenQrBtn = document.getElementById('fullscreen-qr-btn');
+const openQrWindowBtn = document.getElementById('open-qr-window');
 const fullscreenQr = document.getElementById('fullscreen-qr');
 const fullscreenQrContent = document.getElementById('fullscreen-qr-content');
 const fullscreenQrClose = document.getElementById('fullscreen-qr-close');
@@ -517,91 +517,79 @@ function setupEventListeners() {
     floatingQrContainer.style.display = 'none';
   });
   
-  // Function to optimize QR display for fullscreen
-  function optimizeQrForFullscreen() {
-    const qrImg = floatingQrContent.querySelector('img');
-    if (!qrImg) return;
-    
-    fullscreenQrContent.innerHTML = '';
-    const optimizedQr = qrImg.cloneNode(true);
-    
-    // Create a dedicated fullscreen QR wrapper
-    const qrWrapper = document.createElement('div');
-    qrWrapper.className = 'fullscreen-qr-wrapper';
-    qrWrapper.style.width = '100%';
-    qrWrapper.style.height = '100%';
-    qrWrapper.style.display = 'flex';
-    qrWrapper.style.justifyContent = 'center';
-    qrWrapper.style.alignItems = 'center';
-    qrWrapper.style.backgroundColor = '#fff';
-    
-    // Remove hardcoded dimensions for responsive display
-    optimizedQr.removeAttribute('width');
-    optimizedQr.removeAttribute('height');
-    optimizedQr.style.width = '100%';
-    optimizedQr.style.height = '100%';
-    optimizedQr.style.objectFit = 'contain';
-    
-    // Add QR to wrapper and wrapper to container
-    qrWrapper.appendChild(optimizedQr);
-    fullscreenQrContent.appendChild(qrWrapper);
-    
-    // Force browser repaint for better rendering
-    setTimeout(() => {
-      fullscreenQrContent.style.display = 'none';
-      setTimeout(() => {
-        fullscreenQrContent.style.display = 'flex';
-      }, 10);
-    }, 0);
-    
-    log('Optimized QR for fullscreen', { orientation: window.innerWidth > window.innerHeight ? 'landscape' : 'portrait' });
-  }
-
-  // Add orientation change event listener
-  window.addEventListener('orientationchange', () => {
-    // Short delay to ensure screen dimensions are updated
-    setTimeout(() => {
-      if (fullscreenQr.style.display === 'flex') {
-        optimizeQrForFullscreen();
-      }
-    }, 100);
-  });
-
-  // Also handle resize events for desktop
-  window.addEventListener('resize', () => {
-    if (fullscreenQr.style.display === 'flex') {
-      // Debounce resize handler
-      clearTimeout(window.resizeTimer);
-      window.resizeTimer = setTimeout(optimizeQrForFullscreen, 200);
+  // Store reference to the popup window
+  let qrPopupWindow = null;
+  
+  // Function to open QR code in a new window
+  function openQrInNewWindow() {
+    // Close any existing popup
+    if (qrPopupWindow && !qrPopupWindow.closed) {
+      qrPopupWindow.close();
     }
+    
+    // Get the QR code image from floating container
+    const qrImg = floatingQrContent.querySelector('img');
+    if (!qrImg) {
+      log('No QR code image found to open in new window');
+      return;
+    }
+    
+    // Get the image source (data URL)
+    const qrSrc = qrImg.src;
+    const counter = floatingQrCounter.textContent;
+    
+    // Open a new window with the QR window HTML
+    qrPopupWindow = window.open(
+      `qr-window.html?qr=${encodeURIComponent(qrSrc)}&counter=${encodeURIComponent(counter)}`,
+      'QRCodeWindow',
+      'width=600,height=600,resizable=yes,scrollbars=no,toolbar=no,menubar=no,status=no,location=no'
+    );
+    
+    // Focus the window if opened successfully
+    if (qrPopupWindow) {
+      qrPopupWindow.focus();
+      log('Opened QR code in new window');
+    } else {
+      log('Failed to open QR code window - popup may be blocked');
+      alert('Popup blocked! Please allow popups for this site to open the QR code in a new window.');
+    }
+  }
+  
+  // Update QR in popup window if it exists
+  function updateQrInPopup() {
+    if (qrPopupWindow && !qrPopupWindow.closed) {
+      const qrImg = floatingQrContent.querySelector('img');
+      if (qrImg) {
+        // Send message to update the QR code
+        qrPopupWindow.postMessage({
+          type: 'updateQR',
+          qr: qrImg.src,
+          counter: floatingQrCounter.textContent
+        }, '*');
+        
+        log('Updated QR code in popup window');
+      }
+    }
+  }
+  
+  // Add event listener to open QR in new window
+  openQrWindowBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    openQrInNewWindow();
   });
-
-  fullscreenQrBtn.addEventListener('click', () => {
-    // Show fullscreen container
-    fullscreenQr.style.display = 'flex';
-    fullscreenQrCounter.textContent = floatingQrCounter.textContent;
-    
-    // Optimize QR for current screen
-    optimizeQrForFullscreen();
-    
-    // Request fullscreen if supported
-    if (document.documentElement.requestFullscreen) {
-      document.documentElement.requestFullscreen().catch(err => {
-        // Silently continue if fullscreen request fails
-        log('Fullscreen request failed', { error: err.message });
-      });
+  
+  // Close popup window when floating QR is closed
+  floatingQrClose.addEventListener('click', () => {
+    if (qrPopupWindow && !qrPopupWindow.closed) {
+      qrPopupWindow.close();
+      qrPopupWindow = null;
     }
   });
   
-  fullscreenQrClose.addEventListener('click', () => {
-    fullscreenQr.style.display = 'none';
-    
-    // Exit fullscreen if we're in it
-    if (document.fullscreenElement && document.exitFullscreen) {
-      document.exitFullscreen().catch(err => {
-        // Silently continue if exit fullscreen fails
-        log('Exit fullscreen failed', { error: err.message });
-      });
+  // Close popup window when page unloads
+  window.addEventListener('beforeunload', () => {
+    if (qrPopupWindow && !qrPopupWindow.closed) {
+      qrPopupWindow.close();
     }
   });
 }
@@ -1846,9 +1834,20 @@ function stopTransfer() {
   sendStatus.textContent = 'Transfer stopped';
   p2pQrcodeContainer.innerHTML = '';
   
-  // Hide floating QR displays
+  // Hide floating QR display
   floatingQrContainer.style.display = 'none';
-  fullscreenQr.style.display = 'none';
+  
+  // Close popup window if it's open
+  if (qrPopupWindow && !qrPopupWindow.closed) {
+    qrPopupWindow.close();
+    qrPopupWindow = null;
+  }
+  
+  // Close popup window if it's open
+  if (qrPopupWindow && !qrPopupWindow.closed) {
+    qrPopupWindow.close();
+    qrPopupWindow = null;
+  }
   
   // Keep chunks in memory for possible resume
   log('Transfer stopped', {
@@ -2061,12 +2060,8 @@ function displayCurrentChunk() {
       floatingQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
       floatingQrContainer.style.display = 'block';
       
-      // If fullscreen is active, update it too
-      if (fullscreenQr.style.display === 'flex') {
-        fullscreenQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
-        // Use the optimized fullscreen display function
-        optimizeQrForFullscreen();
-      }
+      // Update QR code in popup window if it's open
+      updateQrInPopup();
     } else if (p2pQrcodeContainer.querySelector('.fallback-qr')) {
       // Handle fallback QR display
       const fallbackQr = p2pQrcodeContainer.querySelector('.fallback-qr');
@@ -2077,31 +2072,59 @@ function displayCurrentChunk() {
       floatingQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
       floatingQrContainer.style.display = 'block';
       
-      // Update fullscreen too if active
-      if (fullscreenQr.style.display === 'flex') {
-        fullscreenQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
-        // For fallback, we need special handling as optimizeQrForFullscreen expects an img
-        fullscreenQrContent.innerHTML = '';
-        
-        // Create a dedicated fullscreen wrapper
-        const qrWrapper = document.createElement('div');
-        qrWrapper.className = 'fullscreen-qr-wrapper';
-        qrWrapper.style.width = '100%';
-        qrWrapper.style.height = '100%';
-        qrWrapper.style.display = 'flex';
-        qrWrapper.style.justifyContent = 'center';
-        qrWrapper.style.alignItems = 'center';
-        qrWrapper.style.backgroundColor = '#fff';
-        
-        const fullscreenClone = fallbackQr.cloneNode(true);
-        fullscreenClone.style.width = '100%';
-        fullscreenClone.style.height = '100%';
-        fullscreenClone.style.display = 'flex';
-        fullscreenClone.style.alignItems = 'center';
-        fullscreenClone.style.justifyContent = 'center';
-        
-        qrWrapper.appendChild(fullscreenClone);
-        fullscreenQrContent.appendChild(qrWrapper);
+      // For fallback QR code, we need to create a data URL for the popup
+      if (qrPopupWindow && !qrPopupWindow.closed) {
+        try {
+          // Convert the fallback QR div to an image using html2canvas or a similar approach
+          // For simplicity, we'll just use the text content as a placeholder
+          const fallbackText = fallbackQr.textContent || 'Fallback QR Code';
+          
+          // Create a canvas element
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          canvas.width = 300;
+          canvas.height = 300;
+          
+          // Fill with white background
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          // Add black text
+          ctx.fillStyle = '#000000';
+          ctx.font = '14px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          
+          // Split text into lines for better readability
+          const words = fallbackText.split(' ');
+          let line = '';
+          let y = 100;
+          for (let i = 0; i < words.length; i++) {
+            const testLine = line + words[i] + ' ';
+            if (testLine.length > 40) {
+              ctx.fillText(line, canvas.width / 2, y);
+              line = words[i] + ' ';
+              y += 20;
+            } else {
+              line = testLine;
+            }
+          }
+          ctx.fillText(line, canvas.width / 2, y);
+          
+          // Get data URL from canvas
+          const dataUrl = canvas.toDataURL('image/png');
+          
+          // Send to popup window
+          qrPopupWindow.postMessage({
+            type: 'updateQR',
+            qr: dataUrl,
+            counter: `${currentChunkIndex + 1} / ${p2pChunks.length} (Fallback Mode)`
+          }, '*');
+          
+          log('Sent fallback QR to popup window');
+        } catch (err) {
+          log('Error creating fallback QR for popup', { error: err.message });
+        }
       }
     }
     
