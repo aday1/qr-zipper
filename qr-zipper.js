@@ -1,7 +1,15 @@
 // ======= Part 1 =======
 // Constants
 const MAX_QR_CAPACITY = 2953; // Maximum bytes for QR code
-const MAX_CHUNK_SIZE = 2900; // Slightly less to account for metadata
+const MAX_CHUNK_SIZE = 2900; // Standard chunk size (slightly less than capacity to account for metadata)
+
+// Custom chunk sizes
+const CHUNK_SIZES = {
+  standard: 2900, // Standard size - maximum capacity
+  medium: 1500,   // Medium size - better reliability
+  small: 800,     // Small size - good for most cameras
+  tiny: 400       // Tiny size - most reliable but many chunks
+};
 
 // DOM Elements - General
 const tabs = document.querySelectorAll('.tabs .tab');
@@ -75,6 +83,7 @@ const chunkStatus = document.getElementById('chunk-status');
 const receivedData = document.getElementById('received-data');
 const downloadReceivedBtn = document.getElementById('download-received');
 const p2pFileInfo = document.getElementById('p2p-file-info');
+const chunkSizeSelect = document.getElementById('chunk-size');
 
 // Global variables
 let qrInstance = null;
@@ -232,15 +241,19 @@ function setupEventListeners() {
   
   // Update received data preview when password changes for P2P mode
   p2pReceivePassword.addEventListener('input', () => {
-    // If we have partial chunks and at least one is encrypted, update display with password
-    if (Object.keys(receivedChunks).length > 0 && 
-        Object.values(receivedChunks).some(chunk => chunk.data.startsWith('ENCRYPTED:'))) {
-      
+    // If we have received chunks, update display whenever password changes
+    if (Object.keys(receivedChunks).length > 0) {
       // Remove the highlight once user starts typing
       p2pReceivePassword.classList.remove('needs-password'); 
       
       // Update display with new password
       updatePartialReceivedData();
+      
+      // Log for debugging
+      log('Updating display with new password', {
+        chunks: Object.keys(receivedChunks).length,
+        hasPassword: p2pReceivePassword.value.length > 0
+      });
     }
   });
   
@@ -260,6 +273,12 @@ function setupEventListeners() {
   // Display interval
   displayInterval.addEventListener('input', () => {
     intervalValue.textContent = displayInterval.value + 's';
+  });
+  
+  // Update chunk size information
+  chunkSizeSelect.addEventListener('change', () => {
+    updateCapacityInfo();
+    log('Chunk size changed', {size: chunkSizeSelect.value});
   });
   
   // Input events for capacity check
@@ -686,10 +705,17 @@ function updateCapacityInfo() {
       encodeProgress.className = 'progress-bar';
     }
   } else {
-    // For P2P tab, just update the status
+    // For P2P tab, get the currently selected chunk size
+    const selectedSizeOption = chunkSizeSelect.value;
+    const selectedChunkSize = CHUNK_SIZES[selectedSizeOption] || MAX_CHUNK_SIZE;
+    
+    // Calculate estimated metadata size and effective chunk size
+    const metadataEstimate = 50; // Rough estimate for metadata
+    const effectiveChunkSize = selectedChunkSize - metadataEstimate;
+    
     if (dataSize > MAX_QR_CAPACITY) {
-      const estimatedChunks = Math.ceil(dataSize / MAX_CHUNK_SIZE);
-      sendStatus.textContent = `Large file detected: Will be split into ${estimatedChunks} QR codes`;
+      const estimatedChunks = Math.ceil(dataSize / effectiveChunkSize);
+      sendStatus.textContent = `Using ${selectedSizeOption} chunks (${selectedChunkSize} bytes): Will create ${estimatedChunks} QR codes`;
     } else {
       sendStatus.textContent = `Data size: ${dataSize} bytes (fits in a single QR code)`;
     }
@@ -1258,17 +1284,27 @@ function splitIntoChunks(data, password = '') {
   const md5Hash = generateMD5(processedData);
   log('Generated MD5 hash for data', {hash: md5Hash});
   
+  // Get selected chunk size from dropdown
+  const selectedSizeOption = chunkSizeSelect.value;
+  const selectedChunkSize = CHUNK_SIZES[selectedSizeOption] || MAX_CHUNK_SIZE;
+  
   // Calculate chunk size accounting for metadata
   // Format: [CHUNK_XXX_OF_XXX][MD5_32_CHARS]
   const metadataSize = `[CHUNK_XXX_OF_XXX][MD5_${md5Hash}]`.length;
-  const effectiveChunkSize = MAX_CHUNK_SIZE - metadataSize;
+  const effectiveChunkSize = selectedChunkSize - metadataSize;
   
   // Split data into chunks
   for (let i = 0; i < processedData.length; i += effectiveChunkSize) {
     chunks.push(processedData.substring(i, i + effectiveChunkSize));
   }
   
-  log('Data split into chunks', {count: chunks.length, metadataSize, effectiveChunkSize});
+  log('Data split into chunks', {
+    count: chunks.length, 
+    metadataSize, 
+    effectiveChunkSize,
+    chunkSizeOption: selectedSizeOption,
+    chunkSizeSetting: selectedChunkSize
+  });
   
   // Add metadata to each chunk
   return chunks.map((chunk, index) => {
@@ -1349,14 +1385,35 @@ function displayCurrentChunk() {
   // Clear previous QR code
   p2pQrcodeContainer.innerHTML = '';
   
-  // Create new QR code
+  // Determine QR code size and error correction level based on chunk size
+  // For smaller chunks, we can use higher error correction for better reliability
+  let correctLevel = QRCode.CorrectLevel.L; // Default low correction
+  let qrSize = 300; // Default size
+  
+  // Get selected chunk size to determine optimal settings
+  const selectedChunkSize = CHUNK_SIZES[chunkSizeSelect.value] || MAX_CHUNK_SIZE;
+  
+  if (selectedChunkSize <= CHUNK_SIZES.tiny) {
+    // For tiny chunks, use highest error correction
+    correctLevel = QRCode.CorrectLevel.H;
+    qrSize = 320; // Slightly larger
+  } else if (selectedChunkSize <= CHUNK_SIZES.small) {
+    // For small chunks, use medium-high error correction
+    correctLevel = QRCode.CorrectLevel.Q;
+    qrSize = 310;
+  } else if (selectedChunkSize <= CHUNK_SIZES.medium) {
+    // For medium chunks, use medium error correction
+    correctLevel = QRCode.CorrectLevel.M;
+  }
+  
+  // Create new QR code with appropriate settings
   p2pQrInstance = new QRCode(p2pQrcodeContainer, {
     text: p2pChunks[currentChunkIndex],
-    width: 300,
-    height: 300,
+    width: qrSize,
+    height: qrSize,
     colorDark: "#000000",
     colorLight: "#ffffff",
-    correctLevel: QRCode.CorrectLevel.L
+    correctLevel: correctLevel
   });
   
   // Update counter
