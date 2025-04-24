@@ -61,6 +61,7 @@ const manualNavBtn = document.getElementById('manual-nav');
 const p2pQrcodeContainer = document.getElementById('p2p-qrcode');
 const sendProgress = document.getElementById('send-progress');
 const sendStatus = document.getElementById('send-status');
+const debugP2PBtn = document.getElementById('debug-p2p');
 const displayInterval = document.getElementById('display-interval');
 const intervalValue = document.getElementById('interval-value');
 const p2pNavigation = document.querySelector('.p2p-navigation');
@@ -84,7 +85,9 @@ const receiveProgress = document.getElementById('receive-progress');
 const receiveStatus = document.getElementById('receive-status');
 const chunkStatus = document.getElementById('chunk-status');
 const receivedData = document.getElementById('received-data');
+const chunkLog = document.getElementById('chunk-log');
 const downloadReceivedBtn = document.getElementById('download-received');
+const downloadRawLogBtn = document.getElementById('download-raw-log');
 const p2pFileInfo = document.getElementById('p2p-file-info');
 const chunkSizeSlider = document.getElementById('chunk-size-slider');
 const chunkSizeValue = document.getElementById('chunk-size-value');
@@ -272,7 +275,27 @@ function setupEventListeners() {
   nextChunkBtn.addEventListener('click', showNextChunk);
   startReceivingBtn.addEventListener('click', startReceiving);
   stopReceivingBtn.addEventListener('click', stopReceiving);
-  downloadReceivedBtn.addEventListener('click', () => downloadTextFile(receivedData, 'received-data.txt'));
+  
+  // Download clean data without chunk markers
+  downloadReceivedBtn.addEventListener('click', () => {
+    // Check if we have clean data in the receivedData textarea
+    if (receivedData.value && receivedData.value.trim() !== '') {
+      downloadTextFile(receivedData, 'received-data.txt');
+    } else {
+      alert('No clean data available to download yet.');
+    }
+  });
+  
+  // Download the raw log with chunk information
+  if (downloadRawLogBtn) {
+    downloadRawLogBtn.addEventListener('click', () => {
+      if (chunkLog && chunkLog.value && chunkLog.value.trim() !== '') {
+        downloadTextFile(chunkLog, 'reception-log.txt');
+      } else {
+        alert('No reception log available to download.');
+      }
+    });
+  }
   
   // Force decode button - try to decode with current data even if incomplete
   forceDecodeBtn.addEventListener('click', () => {
@@ -383,6 +406,34 @@ function setupEventListeners() {
       chunkSizeValue.style.color = 'var(--info)';  // Blue for larger
     } else {
       chunkSizeValue.style.color = 'var(--warning)';  // Yellow/orange for largest
+    }
+  });
+  
+  // Debug button for P2P transfer
+  debugP2PBtn.addEventListener('click', () => {
+    // Debug info to console
+    console.log('P2P Chunks:', p2pChunks);
+    console.log('Current Index:', currentChunkIndex);
+    console.log('Transfer Active:', transferActive);
+    
+    // Debug info to page
+    debugInfo.style.display = 'block';
+    log('--- P2P DEBUG INFO ---');
+    log('Current Chunk Index: ' + currentChunkIndex);
+    log('Transfer Active: ' + transferActive);
+    log('Total Chunks: ' + (p2pChunks ? p2pChunks.length : 'none'));
+    
+    // Force display if chunks exist
+    if (p2pChunks && p2pChunks.length > 0) {
+      log('Forcing display of current chunk');
+      // Make sure index is valid
+      if (currentChunkIndex >= p2pChunks.length) {
+        currentChunkIndex = 0;
+      }
+      displayCurrentChunk();
+    } else {
+      log('No chunks to display');
+      sendStatus.textContent = 'No chunks to display. Create chunks first.';
     }
   });
   
@@ -1424,31 +1475,50 @@ function beep() {
 function splitIntoChunks(data, password = '') {
   const chunks = [];
   
+  // Validate data
+  if (!data || typeof data !== 'string') {
+    log('Invalid data provided to splitIntoChunks', { type: typeof data, length: data ? data.length : 0 });
+    throw new Error('Invalid data for chunking');
+  }
+  
   // Encrypt data if password is provided
-  const processedData = password ? encryptData(data, password) : data;
+  let processedData;
+  try {
+    processedData = password ? encryptData(data, password) : data;
+    log('Data processed for chunking', { encrypted: !!password, length: processedData.length });
+  } catch (error) {
+    log('Error encrypting data for chunks', { error: error.message });
+    throw new Error('Failed to process data: ' + error.message);
+  }
   
   // Calculate MD5 hash of the original data for integrity check
   const md5Hash = generateMD5(processedData);
   log('Generated MD5 hash for data', {hash: md5Hash});
   
   // Get selected chunk size from slider
-  const selectedChunkSize = parseInt(chunkSizeSlider.value);
+  const selectedChunkSize = parseInt(chunkSizeSlider.value) || 1500; // Fall back to default if parsing fails
+  log('Using chunk size', { size: selectedChunkSize });
   
   // Calculate chunk size accounting for metadata
   // Format: [CHUNK_XXX_OF_XXX][MD5_32_CHARS]
   const metadataSize = `[CHUNK_XXX_OF_XXX][MD5_${md5Hash}]`.length;
-  const effectiveChunkSize = selectedChunkSize - metadataSize;
+  const effectiveChunkSize = Math.max(10, selectedChunkSize - metadataSize); // Ensure minimum size
   
   // Split data into chunks
   for (let i = 0; i < processedData.length; i += effectiveChunkSize) {
     chunks.push(processedData.substring(i, i + effectiveChunkSize));
   }
   
+  // Handle edge case of empty data
+  if (chunks.length === 0) {
+    log('Warning: Creating empty chunk for empty data');
+    chunks.push('');
+  }
+  
   log('Data split into chunks', {
     count: chunks.length, 
     metadataSize, 
     effectiveChunkSize,
-    chunkSizeOption: selectedSizeOption,
     chunkSizeSetting: selectedChunkSize
   });
   
@@ -1468,43 +1538,104 @@ function startTransfer() {
     return;
   }
   
-  log('Starting P2P transfer');
+  // Clear any previous display
+  p2pQrcodeContainer.innerHTML = '';
   
-  const password = p2pPassword.value;
-  p2pChunks = splitIntoChunks(data, password);
-  currentChunkIndex = 0;
+  // First set UI to loading state
+  startTransferBtn.disabled = true;
+  startTransferBtn.textContent = 'Processing...';
+  sendStatus.textContent = 'Preparing data for transfer...';
+  log('Starting P2P transfer', { dataLength: data.length });
   
-  // Display first chunk
-  displayCurrentChunk();
-  
-  startTransferBtn.style.display = 'none';
-  stopTransferBtn.style.display = 'inline-block';
-  manualNavBtn.style.display = 'inline-block';
-  
-  transferActive = true;
-  sendStatus.textContent = `Sending chunk 1 of ${p2pChunks.length}`;
-  sendProgress.style.width = `${(1 / p2pChunks.length) * 100}%`;
-  
-  // Start auto-slideshow
-  const intervalSeconds = parseFloat(displayInterval.value);
-  autoPlayInterval = setInterval(showNextChunkAuto, intervalSeconds * 1000);
-  
-  log('Transfer started', {totalChunks: p2pChunks.length, interval: intervalSeconds});
+  // Use setTimeout to allow UI to update before heavy processing
+  setTimeout(() => {
+    try {
+      // Get password if provided
+      const password = p2pPassword.value;
+      log('Got password for transfer', { hasPassword: !!password });
+      
+      // Split data into chunks based on selected size
+      p2pChunks = splitIntoChunks(data, password);
+      log('Split data into chunks', { numChunks: p2pChunks ? p2pChunks.length : 0 });
+      
+      if (!p2pChunks || p2pChunks.length === 0) {
+        throw new Error('Failed to split data into chunks');
+      }
+      
+      // Reset index to first chunk
+      currentChunkIndex = 0;
+      
+      log('Data prepared for transfer', {
+        dataLength: data.length,
+        chunks: p2pChunks.length,
+        hasPassword: !!password,
+        firstChunkSize: p2pChunks[0].length
+      });
+      
+      // Update UI
+      startTransferBtn.style.display = 'none';
+      startTransferBtn.disabled = false;
+      startTransferBtn.textContent = 'Start Transfer';
+      stopTransferBtn.style.display = 'inline-block';
+      manualNavBtn.style.display = 'inline-block';
+      
+      transferActive = true;
+      sendStatus.textContent = `Prepared ${p2pChunks.length} chunks for transfer`;
+      
+      // Display first chunk
+      displayCurrentChunk();
+      
+      // Start auto-slideshow
+      const intervalSeconds = parseFloat(displayInterval.value);
+      // Clear existing interval if there is one
+      if (autoPlayInterval) {
+        clearInterval(autoPlayInterval);
+      }
+      autoPlayInterval = setInterval(showNextChunkAuto, intervalSeconds * 1000);
+      
+      log('Transfer started', {totalChunks: p2pChunks.length, interval: intervalSeconds});
+    } catch (error) {
+      console.error('Transfer error:', error);
+      log('Error starting transfer', {error: error.message, stack: error.stack});
+      sendStatus.textContent = 'Error: ' + error.message;
+      
+      // Ensure buttons are in correct state
+      startTransferBtn.style.display = 'inline-block';
+      startTransferBtn.disabled = false;
+      startTransferBtn.textContent = 'Start Transfer';
+      stopTransferBtn.style.display = 'none';
+      manualNavBtn.style.display = 'none';
+    }
+  }, 10); // Small delay to let UI update
 }
 
 function stopTransfer() {
-  clearInterval(autoPlayInterval);
+  log('Stopping transfer');
+  
+  // Clear auto-advancing
+  if (autoPlayInterval) {
+    clearInterval(autoPlayInterval);
+    autoPlayInterval = null;
+  }
+  
+  // Mark transfer as inactive
   transferActive = false;
   
+  // Update UI
   startTransferBtn.style.display = 'inline-block';
   stopTransferBtn.style.display = 'none';
   manualNavBtn.style.display = 'none';
   p2pNavigation.style.display = 'none';
   
+  // Clear display
   sendStatus.textContent = 'Transfer stopped';
   p2pQrcodeContainer.innerHTML = '';
   
-  log('Transfer stopped');
+  // Keep chunks in memory for possible resume
+  log('Transfer stopped', {
+    chunksInMemory: p2pChunks ? p2pChunks.length : 0,
+    lastIndex: currentChunkIndex
+  });
 }
 
 function toggleManualNavigation() {
@@ -1526,86 +1657,175 @@ function toggleManualNavigation() {
 }
 
 function displayCurrentChunk() {
-  if (!p2pChunks.length) return;
+  // Make sure we have chunks
+  if (!p2pChunks || !p2pChunks.length) {
+    log('No chunks to display');
+    sendStatus.textContent = 'No chunks available to display. Start a transfer first.';
+    return;
+  }
+  
+  // Validate current index
+  if (currentChunkIndex < 0 || currentChunkIndex >= p2pChunks.length) {
+    log('Invalid chunk index, resetting to 0', { currentIndex: currentChunkIndex, maxIndex: p2pChunks.length - 1 });
+    currentChunkIndex = 0;
+  }
+  
+  // Debug information
+  log('Attempting to display chunk', {
+    currentIndex: currentChunkIndex,
+    totalChunks: p2pChunks.length,
+    chunkData: p2pChunks[currentChunkIndex] ? p2pChunks[currentChunkIndex].substring(0, 20) + '...' : 'undefined'
+  });
   
   // Clear previous QR code
   p2pQrcodeContainer.innerHTML = '';
+  
+  // Check if current chunk exists
+  if (!p2pChunks[currentChunkIndex]) {
+    log('Current chunk is undefined', { index: currentChunkIndex });
+    sendStatus.textContent = `Error: Chunk ${currentChunkIndex + 1} is undefined`;
+    return;
+  }
   
   // Determine QR code size and error correction level based on chunk size
   // For smaller chunks, we can use higher error correction for better reliability
   let correctLevel = QRCode.CorrectLevel.L; // Default low correction
   let qrSize = 300; // Default size
   
-  // Get selected chunk size from slider
-  const selectedChunkSize = parseInt(chunkSizeSlider.value);
-  
-  // Set appropriate error correction level based on chunk size
-  if (selectedChunkSize <= 200) {
-    // For extremely small chunks, use highest error correction
-    correctLevel = QRCode.CorrectLevel.H;
-    qrSize = 340; // Larger size for better scanning
-  } else if (selectedChunkSize <= 400) {
-    // For very small chunks, use highest error correction
-    correctLevel = QRCode.CorrectLevel.H;
-    qrSize = 320; // Slightly larger
-  } else if (selectedChunkSize <= 800) {
-    // For small chunks, use medium-high error correction
-    correctLevel = QRCode.CorrectLevel.Q;
-    qrSize = 310;
-  } else if (selectedChunkSize <= 1500) {
-    // For medium chunks, use medium error correction
-    correctLevel = QRCode.CorrectLevel.M;
+  try {
+    // Get selected chunk size from slider
+    const selectedChunkSize = parseInt(chunkSizeSlider.value) || 1500;
+    
+    // Set appropriate error correction level based on chunk size
+    if (selectedChunkSize <= 200) {
+      // For extremely small chunks, use highest error correction
+      correctLevel = QRCode.CorrectLevel.H;
+      qrSize = 340; // Larger size for better scanning
+    } else if (selectedChunkSize <= 400) {
+      // For very small chunks, use highest error correction
+      correctLevel = QRCode.CorrectLevel.H;
+      qrSize = 320; // Slightly larger
+    } else if (selectedChunkSize <= 800) {
+      // For small chunks, use medium-high error correction
+      correctLevel = QRCode.CorrectLevel.Q;
+      qrSize = 310;
+    } else if (selectedChunkSize <= 1500) {
+      // For medium chunks, use medium error correction
+      correctLevel = QRCode.CorrectLevel.M;
+    }
+    
+    // Create new QR code with appropriate settings
+    if (typeof QRCode !== 'function') {
+      throw new Error('QRCode library not loaded correctly');
+    }
+    
+    // Create new QR code with the current chunk
+    p2pQrInstance = new QRCode(p2pQrcodeContainer, {
+      text: p2pChunks[currentChunkIndex],
+      width: qrSize,
+      height: qrSize,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: correctLevel
+    });
+    
+    // Update counter
+    chunkCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
+    
+    // Update progress bar
+    sendProgress.style.width = `${((currentChunkIndex + 1) / p2pChunks.length) * 100}%`;
+    
+    // Update status
+    sendStatus.textContent = `Sending chunk ${currentChunkIndex + 1} of ${p2pChunks.length}`;
+    
+    // Show the manual navigation (manual nav controls)
+    p2pNavigation.style.display = 'flex';
+    
+    log('Successfully displayed chunk', {
+      current: currentChunkIndex + 1, 
+      total: p2pChunks.length,
+      size: p2pChunks[currentChunkIndex].length
+    });
+  } catch (error) {
+    log('Error displaying QR code', {error: error.message, stack: error.stack});
+    sendStatus.textContent = 'Error displaying QR code: ' + error.message;
+    console.error('QR code display error:', error);
   }
-  
-  // Create new QR code with appropriate settings
-  p2pQrInstance = new QRCode(p2pQrcodeContainer, {
-    text: p2pChunks[currentChunkIndex],
-    width: qrSize,
-    height: qrSize,
-    colorDark: "#000000",
-    colorLight: "#ffffff",
-    correctLevel: correctLevel
-  });
-  
-  // Update counter
-  chunkCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
-  
-  // Update progress bar
-  sendProgress.style.width = `${((currentChunkIndex + 1) / p2pChunks.length) * 100}%`;
-  
-  // Update status
-  sendStatus.textContent = `Sending chunk ${currentChunkIndex + 1} of ${p2pChunks.length}`;
-  
-  log('Displaying chunk', {current: currentChunkIndex + 1, total: p2pChunks.length});
 }
 
 function showPreviousChunk() {
-  if (currentChunkIndex > 0) {
-    currentChunkIndex--;
-    displayCurrentChunk();
-    log('Showing previous chunk', {index: currentChunkIndex + 1});
+  if (!p2pChunks || p2pChunks.length === 0) {
+    log('No chunks available for navigation');
+    return;
+  }
+  
+  try {
+    if (currentChunkIndex > 0) {
+      currentChunkIndex--;
+      displayCurrentChunk();
+      log('Showing previous chunk', {index: currentChunkIndex + 1});
+    } else {
+      // Optional: Loop around to the last chunk
+      currentChunkIndex = p2pChunks.length - 1;
+      displayCurrentChunk();
+      log('Looped to last chunk', {index: currentChunkIndex + 1});
+    }
+  } catch (error) {
+    log('Error showing previous chunk', {error: error.message});
   }
 }
 
 function showNextChunk() {
-  if (currentChunkIndex < p2pChunks.length - 1) {
-    currentChunkIndex++;
-    displayCurrentChunk();
-    log('Showing next chunk', {index: currentChunkIndex + 1});
+  if (!p2pChunks || p2pChunks.length === 0) {
+    log('No chunks available for navigation');
+    return;
+  }
+  
+  try {
+    if (currentChunkIndex < p2pChunks.length - 1) {
+      currentChunkIndex++;
+      displayCurrentChunk();
+      log('Showing next chunk', {index: currentChunkIndex + 1});
+    } else {
+      // Optional: Loop around to the first chunk
+      currentChunkIndex = 0;
+      displayCurrentChunk();
+      log('Looped to first chunk');
+    }
+  } catch (error) {
+    log('Error showing next chunk', {error: error.message});
   }
 }
 
 function showNextChunkAuto() {
-  if (!transferActive) return;
-  
-  if (currentChunkIndex < p2pChunks.length - 1) {
-    currentChunkIndex++;
-  } else {
-    currentChunkIndex = 0; // Loop back to beginning
+  if (!transferActive || !p2pChunks || p2pChunks.length === 0) {
+    log('Auto advance skipped - transfer not active or no chunks');
+    return;
   }
   
-  displayCurrentChunk();
-  log('Auto-advanced to next chunk', {index: currentChunkIndex + 1});
+  try {
+    // Advance to next chunk or loop back to beginning
+    if (currentChunkIndex < p2pChunks.length - 1) {
+      currentChunkIndex++;
+    } else {
+      currentChunkIndex = 0; // Loop back to beginning
+    }
+    
+    // Display the new chunk
+    displayCurrentChunk();
+    log('Auto-advanced to next chunk', {index: currentChunkIndex + 1});
+  } catch (error) {
+    log('Error in auto-advance', {error: error.message});
+    // Try to recover by restarting at chunk 0
+    currentChunkIndex = 0;
+    try {
+      displayCurrentChunk();
+    } catch (e) {
+      // If still failing, stop auto transfer
+      clearInterval(autoPlayInterval);
+      log('Auto-transfer stopped due to errors');
+    }
+  }
 }
 
 
@@ -1630,7 +1850,9 @@ async function startReceiving() {
     receivedChunks = {};
     totalExpectedChunks = 0;
     receivedData.value = '';
+    chunkLog.value = '';
     downloadReceivedBtn.style.display = 'none';
+    downloadRawLogBtn.style.display = 'none';
     
     try {
       // Always try to get the camera regardless of auto mode
@@ -1929,8 +2151,13 @@ async function processP2PChunk(data) {
       dataStartsWith: chunkData.substring(0, 20) + '...'
     });
     
-    // Write a temporary message to show immediate feedback
-    receivedData.value += `\nReceived chunk ${chunkNumber} of ${totalChunks}...`;
+    // Write a temporary message to show immediate feedback in the chunk log
+    chunkLog.value += `\nReceived chunk ${chunkNumber} of ${totalChunks}...`;
+    chunkLog.scrollTop = chunkLog.scrollHeight;
+    
+    // Show download buttons
+    downloadReceivedBtn.style.display = 'inline-block';
+    downloadRawLogBtn.style.display = 'inline-block';
     
     // Stream the partial data as we receive it - using setTimeout to let UI update first
     setTimeout(() => {
@@ -1966,6 +2193,7 @@ function updatePartialReceivedData() {
       if (anyChunk && anyChunk.md5) {
         log('Detected chunk but totalExpectedChunks not set', { chunk: anyChunk });
         receivedData.value = 'Detected partial data, starting to receive...';
+        chunkLog.value = 'Detected first data chunk, waiting for more information...';
         return;
       }
     }
@@ -1992,6 +2220,8 @@ function updatePartialReceivedData() {
     if (isEncrypted && !p2pReceivePassword.value) {
       log('Encrypted data detected, waiting for password');
       receivedData.value = '[ENCRYPTED DATA DETECTED]\n\nPlease enter the password in the field above to view the data...';
+      chunkLog.value += '\n[ENCRYPTED DATA DETECTED] - Please enter the password\n';
+      chunkLog.value += `Received chunks: ${receivedKeys.length} of ${totalExpectedChunks}\n`;
       
       // Highlight password field to prompt user
       p2pReceivePassword.classList.add('needs-password');
@@ -1999,57 +2229,81 @@ function updatePartialReceivedData() {
       return;
     }
     
+    // Update reception log with status details
+    chunkLog.value = `RECEPTION LOG\n\n`;
+    chunkLog.value += `Total Expected Chunks: ${totalExpectedChunks}\n`;
+    chunkLog.value += `Chunks Received: ${receivedKeys.length} (${Math.round((receivedKeys.length/totalExpectedChunks)*100)}%)\n\n`;
+    chunkLog.value += `Received Chunks: ${receivedKeys.join(', ')}\n\n`;
+    
+    if (totalExpectedChunks > receivedKeys.length) {
+      const missingChunks = [];
+      for (let i = 1; i <= totalExpectedChunks; i++) {
+        if (!receivedChunks[i]) {
+          missingChunks.push(i);
+        }
+      }
+      chunkLog.value += `Missing Chunks: ${missingChunks.join(', ')}\n\n`;
+    }
+    
+    chunkLog.value += `Data Encryption: ${isEncrypted ? 'Yes' : 'No'}\n`;
+    chunkLog.value += `Password Provided: ${p2pReceivePassword.value ? 'Yes' : 'No'}\n\n`;
+    chunkLog.value += `Last Update: ${new Date().toLocaleTimeString()}\n`;
+    
     // Collect the data we have so far
     let partialData = '';
+    let logData = '';
     
-    // Option 1: Simple concatenation for testing
+    // Option 1: Simple concatenation for testing with limited chunks
     if (receivedKeys.length <= 3) {
-      // For small number of chunks, just show each chunk separately for debugging
+      // For small number of chunks, add detailed chunk information to the log
       for (const key of receivedKeys) {
         const chunk = receivedChunks[key];
-        partialData += `[Chunk ${key}]: ${chunk.data.substring(0, 20)}...\n`;
+        logData += `[Chunk ${key}]: ${chunk.data.substring(0, 20)}...\n`;
       }
-    } else {
-      // For multiple chunks, try to identify contiguous ranges
-      const sortedChunkNumbers = receivedKeys.map(Number).sort((a, b) => a - b);
-      
-      // Collect chunk data in order, marking missing chunks
-      const receivedRanges = [];
-      let currentRange = { start: null, end: null };
-      
-      for (let i = 1; i <= totalExpectedChunks; i++) {
-        if (receivedChunks[i]) {
-          // Start a new range if needed
-          if (currentRange.start === null) {
-            currentRange.start = i;
-          }
-          currentRange.end = i;
-        } else if (currentRange.start !== null) {
-          // End of a range, store it
-          receivedRanges.push({...currentRange});
-          currentRange = { start: null, end: null };
+      chunkLog.value += '\n--- CHUNK DETAILS ---\n' + logData;
+    }
+    
+    // For all chunk counts, build the actual data display
+    // Identify contiguous ranges of chunks
+    const receivedRanges = [];
+    let currentRange = { start: null, end: null };
+    
+    for (let i = 1; i <= totalExpectedChunks; i++) {
+      if (receivedChunks[i]) {
+        // Start a new range if needed
+        if (currentRange.start === null) {
+          currentRange.start = i;
         }
-      }
-      
-      // Add the last range if it's open
-      if (currentRange.start !== null) {
+        currentRange.end = i;
+      } else if (currentRange.start !== null) {
+        // End of a range, store it
         receivedRanges.push({...currentRange});
+        currentRange = { start: null, end: null };
       }
-      
-      log('Identified data ranges', { ranges: receivedRanges });
-      
-      // Build received data from chunks in received ranges
-      for (const range of receivedRanges) {
-        for (let i = range.start; i <= range.end; i++) {
-          // Only add if we actually have the chunk (defensive check)
-          if (receivedChunks[i] && receivedChunks[i].data) {
-            partialData += receivedChunks[i].data;
-          }
+    }
+    
+    // Add the last range if it's open
+    if (currentRange.start !== null) {
+      receivedRanges.push({...currentRange});
+    }
+    
+    log('Identified data ranges', { ranges: receivedRanges });
+    chunkLog.value += '\n--- DATA RANGES ---\n';
+    receivedRanges.forEach(range => {
+      chunkLog.value += `Chunks ${range.start}-${range.end}\n`;
+    });
+    
+    // Build received data from chunks in received ranges
+    for (const range of receivedRanges) {
+      for (let i = range.start; i <= range.end; i++) {
+        // Only add if we actually have the chunk (defensive check)
+        if (receivedChunks[i] && receivedChunks[i].data) {
+          partialData += receivedChunks[i].data;
         }
-        // Add a separator between non-consecutive ranges
-        if (range !== receivedRanges[receivedRanges.length - 1]) {
-          partialData += '\n[...missing data...]\n';
-        }
+      }
+      // Add a separator between non-consecutive ranges
+      if (range !== receivedRanges[receivedRanges.length - 1]) {
+        partialData += '\n[...missing data...]\n';
       }
     }
     
@@ -2071,39 +2325,47 @@ function updatePartialReceivedData() {
         // Try to decrypt - this might fail for partial data which is expected
         try {
           const decrypted = decryptData(tempEncrypted, p2pReceivePassword.value);
-          receivedData.value = decrypted + '\n\n[LIVE DATA STREAM - continue scanning...]';
+          receivedData.value = decrypted;
           log('Successfully decrypted partial data');
+          chunkLog.value += '\n[Decryption successful]';
         } catch (decryptError) {
           // Decryption failed but we have the password - could be partial data or wrong password
           log('Partial decrypt failed', { error: decryptError.message });
           receivedData.value = 'RECEIVED DATA (encrypted):\n\n' + 
             partialData.substring(0, 100) + '...\n\n' +
             '[Decryption pending - continue scanning or check password]';
+          chunkLog.value += '\n[Decryption failed: ' + decryptError.message + ']';
         }
       } catch (error) {
         // Fall back to showing the raw data
         log('Decrypt attempt failed', { error: error.message });
         receivedData.value = 'RECEIVED DATA (raw):\n\n' + partialData.substring(0, 200) + 
-                          '\n\n[' + Object.keys(receivedChunks).length + ' chunks received]';
+                         '\n\n[' + Object.keys(receivedChunks).length + ' chunks received]';
+        chunkLog.value += '\n[Decrypt error: ' + error.message + ']';
       }
     } else if (!isEncrypted) {
-      // Show raw data for non-encrypted content
-      receivedData.value = partialData + '\n\n[LIVE DATA STREAM - continue scanning...]';
+      // Show clean data for non-encrypted content
+      receivedData.value = partialData;
       log('Updated display with unencrypted data', {length: partialData.length});
     } else {
       // Encrypted but no password
       receivedData.value = 'ENCRYPTED DATA (waiting for password):\n\n' + 
-                        partialData.substring(0, 100) + '...\n\n' +
-                        '[Enter password above to view content]';
+                       partialData.substring(0, 100) + '...\n\n' +
+                       '[Enter password above to view content]';
     }
     
-    // Scroll to the bottom
+    // Add scanning status to chunk log
+    chunkLog.value += '\n\n[LIVE DATA STREAM - continue scanning...]';
+    
+    // Scroll both areas to the bottom
     receivedData.scrollTop = receivedData.scrollHeight;
+    chunkLog.scrollTop = chunkLog.scrollHeight;
   } catch (error) {
     // Even if we have an error, try to show something
     log('Error updating partial data', {error: error.message});
     receivedData.value = 'Error updating display, but data is being received.\n' +
-                      'Chunks received: ' + Object.keys(receivedChunks).length;
+                     'Chunks received: ' + Object.keys(receivedChunks).length;
+    chunkLog.value += '\n[Display error: ' + error.message + ']';
   }
 }
 
@@ -2230,19 +2492,35 @@ async function assembleAndDecryptData(isFinalAssembly = false) {
       receiveStatus.textContent = 'Transfer complete! All chunks received and verified.';
       p2pReceivePassword.classList.remove('needs-password');
       
+      // Update log with completion information
+      chunkLog.value += '\n\n--- TRANSFER COMPLETE ---\n';
+      chunkLog.value += `Total chunks: ${totalExpectedChunks}\n`;
+      chunkLog.value += `Final data size: ${finalData.length} bytes\n`;
+      chunkLog.value += `MD5 checksum: ${md5Hash}\n`;
+      chunkLog.value += `Completed at: ${new Date().toLocaleTimeString()}\n`;
+      
       log('Data successfully assembled and decoded', {size: finalData.length});
+      
+      // Make both download buttons visible and prominent
+      downloadReceivedBtn.style.display = 'inline-block';
+      downloadRawLogBtn.style.display = 'inline-block';
       
       // Stop receiving - only for final assembly
       stopReceiving();
     } else {
       // For partial assembly, update the display but don't stop scanning
-      receivedData.value = finalData + 
-        (missingChunks.length > 0 ? 
-          `\n\n[${missingChunks.length} chunks still missing...]` : 
-          '\n\n[All chunks received, verifying...]');
+      receivedData.value = finalData;
       
-      // Scroll to the bottom
+      if (missingChunks.length > 0) {
+        chunkLog.value += `\n\n[${missingChunks.length} chunks still missing...]\n`;
+        chunkLog.value += `Missing chunks: ${missingChunks.join(', ')}\n`;
+      } else {
+        chunkLog.value += '\n\n[All chunks received, verifying...]\n';
+      }
+      
+      // Scroll both areas to the bottom
       receivedData.scrollTop = receivedData.scrollHeight;
+      chunkLog.scrollTop = chunkLog.scrollHeight;
     }
   } catch (error) {
     receiveStatus.textContent = `Error assembling data: ${error.message}`;

@@ -14,7 +14,7 @@
 <body>
   <div class="container">
     <header>
-      <pre>
+      <pre class="ascii-logo desktop-only">
  ██████  ██████       ███████ ██ ██████  ██████  ███████ ██████  
 ██    ██ ██   ██      ███████ ██ ██   ██ ██   ██ ██      ██   ██ 
 ██    ██ ██████          ███  ██ ██████  ██████  █████   ██████  
@@ -22,6 +22,7 @@
  ██████  ██   ██ ██   ███████ ██ ██      ██      ███████ ██   ██ 
     ▀▀                                                           
       </pre>
+      <h1 class="mobile-only">QR-ZIPPER</h1>
       <p class="subtitle">[ encode | decode | transfer | secure ]</p>
       <p class="offline-notice">★ FULLY OFFLINE CAPABLE - NO INTERNET REQUIRED ★</p>
     </header>
@@ -185,6 +186,7 @@
             <div class="progress-bar" id="send-progress"></div>
           </div>
           <div id="send-status">Ready to send</div>
+          <button class="btn btn-secondary" id="debug-p2p">Debug Transfer</button>
         </div>
         
         <div class="result-container">
@@ -245,12 +247,22 @@
           <div id="chunk-status"></div>
         </div>
         
-        <div class="form-group">
-          <label for="received-data">Received Data:</label>
-          <textarea id="received-data" placeholder="Received data will appear here..." readonly></textarea>
+        <div class="p2p-data-container">
+          <div class="form-group">
+            <label for="received-data">Received Data:</label>
+            <textarea id="received-data" placeholder="Received data will appear here..." readonly></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label for="chunk-log">Reception Log:</label>
+            <textarea id="chunk-log" placeholder="Chunk reception details will appear here..." readonly></textarea>
+          </div>
         </div>
         
-        <button class="btn btn-secondary" id="download-received" style="display: none;">Save as Text File</button>
+        <div class="button-group">
+          <button class="btn btn-secondary" id="download-received" style="display: none;">Save as Text File</button>
+          <button class="btn btn-secondary" id="download-raw-log" style="display: none;">Save Log</button>
+        </div>
       </div>
     </div>
     
