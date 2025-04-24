@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>QR-Zipper</title>
-  <!-- External Libraries -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <!-- Local Libraries (no CDN dependencies) -->
+  <script src="libs/qrcode.min.js"></script>
+  <script src="libs/zxing.min.js"></script>
+  <script src="libs/crypto-js.min.js"></script>
   <!-- CSS File -->
   <link rel="stylesheet" href="qr-zipper.css">
 </head>
@@ -23,6 +23,7 @@
     ▀▀                                                           
       </pre>
       <p class="subtitle">[ encode | decode | transfer | secure ]</p>
+      <p class="offline-notice">★ FULLY OFFLINE CAPABLE - NO INTERNET REQUIRED ★</p>
     </header>
     
     <div class="tabs">
@@ -248,6 +249,7 @@
         <li><strong>Password Protection:</strong> AES encryption for your data</li>
         <li><strong>MD5 Verification:</strong> Ensures data integrity during multi-part transfers</li>
         <li><strong>Local Processing:</strong> All operations happen in your browser, no data is sent to servers</li>
+        <li><strong>Completely Offline:</strong> All libraries are included locally - no internet connection required</li>
       </ul>
       
       <h3>Chunking and P2P Features</h3>

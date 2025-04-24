@@ -98,6 +98,9 @@ document.addEventListener('DOMContentLoaded', function() {
   initCameraSelection();
   setupEventListeners();
   console.log('QR Code Zipper initialized');
+  
+  // Check if we're offline capable
+  checkOfflineCapability();
 });
 
 // Initialize ZXing library
@@ -130,6 +133,8 @@ function log(message, obj = null) {
 
 // Setup Event Listeners
 function setupEventListeners() {
+  // Initially disable the decode button until an image is loaded
+  decodeQrBtn.disabled = true;
   // Tab switching
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
@@ -270,9 +275,12 @@ function loadQRImage(file) {
   const reader = new FileReader();
   reader.onload = function(e) {
     imagePreview.innerHTML = `<img src="${e.target.result}" alt="QR Code">`;
-    decodeMessage.textContent = `Image loaded: ${file.name}`;
+    decodeMessage.textContent = `Image loaded: ${file.name}. Click 'Decode QR Code' to process.`;
     decodeMessage.className = 'message info';
     log('QR image loaded', {name: file.name});
+    
+    // Enable decode button when image is loaded
+    decodeQrBtn.disabled = false;
   };
   reader.readAsDataURL(file);
 }
@@ -695,9 +703,15 @@ function generateQRCode() {
 
 // Encryption Functions
 function encryptData(data, password) {
-  // Add a prefix to identify encrypted data
-  const encryptedData = CryptoJS.AES.encrypt(data, password).toString();
-  return `ENCRYPTED:${encryptedData}`;
+  try {
+    // Add a prefix to identify encrypted data
+    const encryptedData = CryptoJS.AES.encrypt(data, password).toString();
+    log('Data encrypted successfully');
+    return `ENCRYPTED:${encryptedData}`;
+  } catch (error) {
+    log('Encryption error', {error: error.message});
+    throw new Error('Encryption failed: ' + error.message);
+  }
 }
 
 function decryptData(encryptedData, password) {
@@ -717,6 +731,7 @@ function decryptData(encryptedData, password) {
     
     return decrypted;
   } catch (error) {
+    log('Decryption error', {error: error.message});
     throw new Error('Decryption failed: Incorrect password or corrupted data');
   }
 }
@@ -724,6 +739,36 @@ function decryptData(encryptedData, password) {
 // Generate MD5 hash for data integrity
 function generateMD5(data) {
   return CryptoJS.MD5(data).toString();
+}
+
+// Check if all libraries are loaded and app can run offline
+function checkOfflineCapability() {
+  try {
+    // Check if all required libraries are loaded
+    const librariesLoaded = (
+      typeof QRCode !== 'undefined' &&
+      typeof ZXing !== 'undefined' &&
+      typeof CryptoJS !== 'undefined'
+    );
+    
+    if (librariesLoaded) {
+      log('All libraries loaded successfully - application is ready for offline use');
+      
+      // Add offline indicator to footer
+      const footer = document.querySelector('footer p');
+      if (footer) {
+        footer.innerHTML += ' <span style="color: #00ff00;">•</span> OFFLINE READY';
+      }
+    } else {
+      log('WARNING: Some libraries failed to load - offline operation may not work', {
+        QRCode: typeof QRCode !== 'undefined',
+        ZXing: typeof ZXing !== 'undefined',
+        CryptoJS: typeof CryptoJS !== 'undefined'
+      });
+    }
+  } catch (error) {
+    log('Error checking offline capability', {error: error.message});
+  }
 }
 
 
@@ -1028,6 +1073,7 @@ function clearDecode() {
   decodeMessage.className = '';
   downloadDecodedBtn.style.display = 'none';
   imagePreview.innerHTML = '';
+  decodeQrBtn.disabled = true; // Disable decode button when cleared
   log('Decode form cleared');
 }
 
@@ -1240,6 +1286,8 @@ function showNextChunkAuto() {
 // ======= Part 5 =======
 // P2P Receiving functions
 async function startReceiving() {
+  // Set debug visible to help troubleshoot camera issues
+  debugInfo.style.display = 'block';
   try {
     log('Starting P2P receiving...');
     receiveStatus.textContent = 'Requesting camera access...';
@@ -1252,8 +1300,9 @@ async function startReceiving() {
     downloadReceivedBtn.style.display = 'none';
     
     try {
-      // Check if we're in auto mode
-      if (selectedP2PCamera === 'auto' || !selectedP2PCamera) {
+      // Always try to get the camera regardless of auto mode
+      // This is more reliable across different platforms
+      try {
         // Try to get the environment-facing (back) camera first as it's better for QR codes
         try {
           log('Trying to access environment-facing camera for P2P');
@@ -1266,13 +1315,13 @@ async function startReceiving() {
           log('Failed to access environment camera for P2P, falling back to any camera', { error: envError.message });
           p2pStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
-      } else {
-        // Use the specifically selected camera
+      } catch (e) {
+        // Fallback to any camera
+        log('Falling back to any available camera', {error: e.message});
         p2pStream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: { exact: selectedP2PCamera } },
+          video: true,
           audio: false
         });
-        log('Using selected P2P camera', {deviceId: selectedP2PCamera});
       }
       
       // Now refresh the camera list with actual device names
@@ -1296,13 +1345,13 @@ async function startReceiving() {
         camera: selectedP2PCamera === 'auto' ? 'auto-detected' : selectedP2PCamera
       });
     } catch (cameraError) {
-      // Try fallback approach for Linux systems
+      // Try fallback approach for Linux/WSL systems
       try {
         log('First camera access attempt failed, trying with different constraints', {error: cameraError.message});
         
-        // Try with very basic constraints
+        // Try with very basic constraints - crucial for WSL environments
         p2pStream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: 640, height: 480 }, 
+          video: true, 
           audio: false 
         });
         

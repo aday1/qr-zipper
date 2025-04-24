@@ -1,8 +1,16 @@
 
 
-About QR Code Zipper & Unzipper
+# QR Code Zipper & Unzipper
 
 This tool allows you to encode data into QR codes and decode them back. Additional features include password protection, large file chunking, and peer-to-peer transfer capabilities.
+
+## Offline Capabilities
+
+This application works 100% offline:
+- All libraries are now included locally in the `libs/` directory
+- No internet connection is required for any functionality
+- Camera access, encryption, and all processing happens locally
+- See `OFFLINE.md` for detailed offline usage instructions
 QR Code Capacity
 
 QR codes have different versions (sizes) with different data capacities:
