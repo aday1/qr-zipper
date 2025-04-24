@@ -525,26 +525,36 @@ function setupEventListeners() {
     fullscreenQrContent.innerHTML = '';
     const optimizedQr = qrImg.cloneNode(true);
     
-    // Remove hardcoded dimensions to allow responsive sizing
+    // Create a dedicated fullscreen QR wrapper
+    const qrWrapper = document.createElement('div');
+    qrWrapper.className = 'fullscreen-qr-wrapper';
+    qrWrapper.style.width = '100%';
+    qrWrapper.style.height = '100%';
+    qrWrapper.style.display = 'flex';
+    qrWrapper.style.justifyContent = 'center';
+    qrWrapper.style.alignItems = 'center';
+    qrWrapper.style.backgroundColor = '#fff';
+    
+    // Remove hardcoded dimensions for responsive display
     optimizedQr.removeAttribute('width');
     optimizedQr.removeAttribute('height');
-    optimizedQr.style.width = 'auto';
-    optimizedQr.style.height = 'auto';
+    optimizedQr.style.width = '100%';
+    optimizedQr.style.height = '100%';
+    optimizedQr.style.objectFit = 'contain';
     
-    // Adjust for orientation
-    const isLandscape = window.innerWidth > window.innerHeight;
-    const maxSize = Math.min(window.innerWidth, window.innerHeight) * 0.7;
+    // Add QR to wrapper and wrapper to container
+    qrWrapper.appendChild(optimizedQr);
+    fullscreenQrContent.appendChild(qrWrapper);
     
-    if (isLandscape) {
-      optimizedQr.style.height = `${maxSize}px`;
-      optimizedQr.style.maxHeight = `${maxSize}px`;
-    } else {
-      optimizedQr.style.width = `${maxSize}px`;
-      optimizedQr.style.maxWidth = `${maxSize}px`;
-    }
+    // Force browser repaint for better rendering
+    setTimeout(() => {
+      fullscreenQrContent.style.display = 'none';
+      setTimeout(() => {
+        fullscreenQrContent.style.display = 'flex';
+      }, 10);
+    }, 0);
     
-    fullscreenQrContent.appendChild(optimizedQr);
-    log('Optimized QR for fullscreen', { orientation: isLandscape ? 'landscape' : 'portrait', maxSize });
+    log('Optimized QR for fullscreen', { orientation: window.innerWidth > window.innerHeight ? 'landscape' : 'portrait' });
   }
 
   // Add orientation change event listener
@@ -573,10 +583,26 @@ function setupEventListeners() {
     
     // Optimize QR for current screen
     optimizeQrForFullscreen();
+    
+    // Request fullscreen if supported
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(err => {
+        // Silently continue if fullscreen request fails
+        log('Fullscreen request failed', { error: err.message });
+      });
+    }
   });
   
   fullscreenQrClose.addEventListener('click', () => {
     fullscreenQr.style.display = 'none';
+    
+    // Exit fullscreen if we're in it
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(err => {
+        // Silently continue if exit fullscreen fails
+        log('Exit fullscreen failed', { error: err.message });
+      });
+    }
   });
 }
 
@@ -2056,18 +2082,26 @@ function displayCurrentChunk() {
         fullscreenQrCounter.textContent = `${currentChunkIndex + 1} / ${p2pChunks.length}`;
         // For fallback, we need special handling as optimizeQrForFullscreen expects an img
         fullscreenQrContent.innerHTML = '';
+        
+        // Create a dedicated fullscreen wrapper
+        const qrWrapper = document.createElement('div');
+        qrWrapper.className = 'fullscreen-qr-wrapper';
+        qrWrapper.style.width = '100%';
+        qrWrapper.style.height = '100%';
+        qrWrapper.style.display = 'flex';
+        qrWrapper.style.justifyContent = 'center';
+        qrWrapper.style.alignItems = 'center';
+        qrWrapper.style.backgroundColor = '#fff';
+        
         const fullscreenClone = fallbackQr.cloneNode(true);
+        fullscreenClone.style.width = '100%';
+        fullscreenClone.style.height = '100%';
+        fullscreenClone.style.display = 'flex';
+        fullscreenClone.style.alignItems = 'center';
+        fullscreenClone.style.justifyContent = 'center';
         
-        // Adjust for orientation
-        const isLandscape = window.innerWidth > window.innerHeight;
-        const maxSize = Math.min(window.innerWidth, window.innerHeight) * 0.7;
-        
-        fullscreenClone.style.maxWidth = isLandscape ? 'auto' : `${maxSize}px`;
-        fullscreenClone.style.maxHeight = isLandscape ? `${maxSize}px` : 'auto';
-        fullscreenClone.style.width = isLandscape ? 'auto' : `${maxSize}px`;
-        fullscreenClone.style.height = isLandscape ? `${maxSize}px` : 'auto';
-        
-        fullscreenQrContent.appendChild(fullscreenClone);
+        qrWrapper.appendChild(fullscreenClone);
+        fullscreenQrContent.appendChild(qrWrapper);
       }
     }
     
