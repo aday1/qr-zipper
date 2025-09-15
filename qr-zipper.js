@@ -104,6 +104,9 @@ const downloadRawLogBtn = document.getElementById('download-raw-log');
 const p2pFileInfo = document.getElementById('p2p-file-info');
 const chunkSizeSlider = document.getElementById('chunk-size-slider');
 const chunkSizeValue = document.getElementById('chunk-size-value');
+// Sample zip buttons
+const downloadSampleZipBtn = document.getElementById('download-sample-zip');
+const loadSampleZipBtn = document.getElementById('load-sample-zip');
 
 // Global variables
 let qrInstance = null;
@@ -121,6 +124,9 @@ let transferPaused = false;
 let autoPlayInterval = null;
 let receivedChunks = {};
 let totalExpectedChunks = 0;
+// P2P file transfer state for binary/zip
+let p2pSelectedFileMeta = null; // {name, type, size, isBinary}
+let receivedFileMeta = null; // populated when envelope indicates file
 
 // Initialize
 document.addEventListener('DOMContentLoaded', function() {
@@ -237,8 +243,21 @@ function setupEventListeners() {
     }
   });
   
-  setupDropArea(p2pFileDropArea, p2pFileInput, (file) => {
-    readTextFile(file, p2pInput, p2pFileInfo);
+  setupDropArea(p2pFileDropArea, p2pFileInput, async (file) => {
+    // If it's a zip or non-text, read as base64 envelope
+    const isZip = file.name.toLowerCase().endsWith('.zip');
+    const isText = file.type.startsWith('text/') || /\.(txt|json|csv|md|html|css|js)$/i.test(file.name);
+    if (!isText) {
+      const envelope = await readFileAsBase64Envelope(file);
+      p2pInput.value = envelope;
+      p2pSelectedFileMeta = { name: file.name, type: file.type || 'application/octet-stream', size: file.size, isBinary: true };
+      if (p2pFileInfo) p2pFileInfo.textContent = `File: ${file.name} (${formatBytes(file.size)}) - will be sent as binary via QR`;
+      updateCapacityInfo();
+      log('Prepared binary file for P2P as base64 envelope', { name: file.name, size: file.size, type: file.type, isZip });
+    } else {
+      readTextFile(file, p2pInput, p2pFileInfo);
+      p2pSelectedFileMeta = { name: file.name, type: file.type || 'text/plain', size: file.size, isBinary: false };
+    }
   });
   
   // Button event listeners
@@ -287,6 +306,34 @@ function setupEventListeners() {
   pauseTransferBtn.addEventListener('click', pauseTransfer);
   resumeTransferBtn.addEventListener('click', resumeTransfer);
   manualNavBtn.addEventListener('click', toggleManualNavigation);
+  
+  // Sample ZIP actions
+  if (downloadSampleZipBtn) {
+    downloadSampleZipBtn.addEventListener('click', async () => {
+      const blob = await buildSampleZip();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'sample.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      log('Downloaded sample.zip');
+    });
+  }
+  if (loadSampleZipBtn) {
+    loadSampleZipBtn.addEventListener('click', async () => {
+      const blob = await buildSampleZip();
+      const file = new File([blob], 'sample.zip', { type: 'application/zip' });
+      const envelope = await readFileAsBase64Envelope(file);
+      p2pSelectedFileMeta = { name: file.name, type: file.type, size: file.size, isBinary: true };
+      p2pInput.value = envelope;
+      if (p2pFileInfo) p2pFileInfo.textContent = `Loaded: ${file.name} (${formatBytes(file.size)})`;
+      updateCapacityInfo();
+      log('Loaded sample.zip into P2P sender');
+    });
+  }
   prevChunkBtn.addEventListener('click', showPreviousChunk);
   nextChunkBtn.addEventListener('click', showNextChunk);
   startReceivingBtn.addEventListener('click', startReceiving);
@@ -294,11 +341,37 @@ function setupEventListeners() {
   
   // Download clean data without chunk markers
   downloadReceivedBtn.addEventListener('click', () => {
-    // Check if we have clean data in the receivedData textarea
-    if (receivedData.value && receivedData.value.trim() !== '') {
-      downloadTextFile(receivedData, 'received-data.txt');
-    } else {
-      alert('No clean data available to download yet.');
+    // If a file envelope was received and fully assembled, download as blob
+    try {
+      const text = receivedData.value || '';
+      const env = parseFileEnvelope(text);
+      if (env) {
+        const blob = base64ToBlob(env.base64, env.type || 'application/octet-stream');
+        if (typeof env.size === 'number' && blob.size !== env.size) {
+          const proceed = confirm(`Warning: File appears incomplete (${formatBytes(blob.size)} of ${formatBytes(env.size)}). Download anyway?`);
+          if (!proceed) {
+            return;
+          }
+        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = env.name || 'received-file';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        log('Downloaded received file', { name: env.name, type: env.type, size: env.size });
+        return;
+      }
+      // Otherwise fallback to text
+      if (text.trim() !== '') {
+        downloadTextFile(receivedData, 'received-data.txt');
+      } else {
+        alert('No clean data available to download yet.');
+      }
+    } catch (e) {
+      alert('Failed to download received data: ' + e.message);
     }
   });
   
@@ -579,6 +652,55 @@ function readTextFile(file, targetElement, infoElement) {
   reader.readAsText(file);
 }
 
+// Read file as base64 and wrap in a QR-friendly envelope with metadata
+async function readFileAsBase64Envelope(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(r.error);
+    r.onload = () => {
+      try {
+        const base64 = r.result.split(',')[1]; // remove data URL prefix
+        // Envelope format: [FILE name=...;type=...;size=...]\nBASE64:....
+        const safeName = encodeURIComponent(file.name);
+        const safeType = encodeURIComponent(file.type || 'application/octet-stream');
+        const header = `[FILE name=${safeName};type=${safeType};size=${file.size}]\nBASE64:`;
+        resolve(header + base64);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    r.readAsDataURL(file);
+  });
+}
+
+// Parse envelope back to {name,type,size,base64,content(isEncrypted?)} or null
+function parseFileEnvelope(text) {
+  const m = text.match(/^\[FILE name=([^;]+);type=([^;]+);size=(\d+)\]\n(BASE64:)?([A-Za-z0-9+/=\n\r]+)$/s);
+  if (!m) return null;
+  return {
+    name: decodeURIComponent(m[1]),
+    type: decodeURIComponent(m[2]),
+    size: parseInt(m[3], 10),
+    base64: (m[5] || '').replace(/\s+/g, ''),
+  };
+}
+
+function base64ToBlob(b64, type) {
+  // Handle large base64 by chunking
+  const byteChars = atob(b64);
+  const sliceSize = 1024 * 256;
+  const byteArrays = [];
+  for (let offset = 0; offset < byteChars.length; offset += sliceSize) {
+    const slice = byteChars.slice(offset, offset + sliceSize);
+    const byteNumbers = new Array(slice.length);
+    for (let i = 0; i < slice.length; i++) {
+      byteNumbers[i] = slice.charCodeAt(i);
+    }
+    byteArrays.push(new Uint8Array(byteNumbers));
+  }
+  return new Blob(byteArrays, { type });
+}
+
 function loadQRImage(file) {
   const reader = new FileReader();
   reader.onload = function(e) {
@@ -591,6 +713,118 @@ function loadQRImage(file) {
     decodeQrBtn.disabled = false;
   };
   reader.readAsDataURL(file);
+}
+
+// --- Simple ZIP builder (no external libs) ---
+// Builds a zip with a single file hello.txt containing "Hello from QR-Zipper!\n"
+async function buildSampleZip() {
+  const text = 'Hello from QR-Zipper!\n';
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const filename = 'hello.txt';
+  const fileNameBytes = new TextEncoder().encode(filename);
+  const crc = crc32(data);
+  const modTime = dosTimeFromDate(new Date());
+  const modDate = dosDateFromDate(new Date());
+
+  // Local file header (30 bytes) + name + data
+  const LFH_SIG = 0x04034b50;
+  const VERSION = 20;
+  const GPFLAG = 0;
+  const METHOD = 0; // store
+  const compressedSize = data.length;
+  const uncompressedSize = data.length;
+  const nameLen = fileNameBytes.length;
+  const extraLen = 0;
+
+  const lfh = new ArrayBuffer(30);
+  const dv1 = new DataView(lfh);
+  dv1.setUint32(0, LFH_SIG, true);
+  dv1.setUint16(4, VERSION, true);
+  dv1.setUint16(6, GPFLAG, true);
+  dv1.setUint16(8, METHOD, true);
+  dv1.setUint16(10, modTime, true);
+  dv1.setUint16(12, modDate, true);
+  dv1.setUint32(14, crc >>> 0, true);
+  dv1.setUint32(18, compressedSize, true);
+  dv1.setUint32(22, uncompressedSize, true);
+  dv1.setUint16(26, nameLen, true);
+  dv1.setUint16(28, extraLen, true);
+
+  // Central directory header (46 bytes) + name
+  const CDH_SIG = 0x02014b50;
+  const EXTERNAL_ATTR = 0;
+  const RELATIVE_OFFSET = 0; // starts at 0 since single entry
+  const cdh = new ArrayBuffer(46);
+  const dv2 = new DataView(cdh);
+  dv2.setUint32(0, CDH_SIG, true);
+  dv2.setUint16(4, 0x0314, true); // version made by (arbitrary)
+  dv2.setUint16(6, VERSION, true); // version needed
+  dv2.setUint16(8, GPFLAG, true);
+  dv2.setUint16(10, METHOD, true);
+  dv2.setUint16(12, modTime, true);
+  dv2.setUint16(14, modDate, true);
+  dv2.setUint32(16, crc >>> 0, true);
+  dv2.setUint32(20, compressedSize, true);
+  dv2.setUint32(24, uncompressedSize, true);
+  dv2.setUint16(28, nameLen, true);
+  dv2.setUint16(30, 0, true); // extra len
+  dv2.setUint16(32, 0, true); // comment len
+  dv2.setUint16(34, 0, true); // disk start
+  dv2.setUint16(36, 0, true); // int attr
+  dv2.setUint32(38, EXTERNAL_ATTR, true);
+  dv2.setUint32(42, RELATIVE_OFFSET, true);
+
+  // EOCD (End of central directory) 22 bytes
+  const EOCD_SIG = 0x06054b50;
+  const cdirSize = 46 + nameLen;
+  const cdirOffset = 30 + nameLen + data.length; // after LFH+name+data
+  const eocd = new ArrayBuffer(22);
+  const dv3 = new DataView(eocd);
+  dv3.setUint32(0, EOCD_SIG, true);
+  dv3.setUint16(4, 0, true); // disk number
+  dv3.setUint16(6, 0, true); // disk with cdir
+  dv3.setUint16(8, 1, true); // total entries disk
+  dv3.setUint16(10, 1, true); // total entries
+  dv3.setUint32(12, cdirSize, true);
+  dv3.setUint32(16, cdirOffset, true);
+  dv3.setUint16(20, 0, true); // comment len
+
+  return new Blob([
+    lfh,
+    fileNameBytes,
+    data,
+    cdh,
+    fileNameBytes,
+    eocd
+  ], { type: 'application/zip' });
+}
+
+function dosTimeFromDate(d) {
+  return ((d.getHours() & 0x1f) << 11) | ((d.getMinutes() & 0x3f) << 5) | ((Math.floor(d.getSeconds() / 2)) & 0x1f);
+}
+function dosDateFromDate(d) {
+  return (((d.getFullYear() - 1980) & 0x7f) << 9) | (((d.getMonth() + 1) & 0x0f) << 5) | (d.getDate() & 0x1f);
+}
+
+// CRC32 implementation
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) {
+      c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    }
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+function crc32(bytes) {
+  let c = 0 ^ (-1);
+  for (let i = 0; i < bytes.length; i++) {
+    c = (c >>> 8) ^ CRC_TABLE[(c ^ bytes[i]) & 0xFF];
+  }
+  return (c ^ (-1)) >>> 0;
 }
 
 function formatBytes(bytes, decimals = 2) {
@@ -1644,12 +1878,13 @@ function startTransfer() {
   // Use setTimeout to allow UI to update before heavy processing
   setTimeout(() => {
     try {
-      // Get password if provided
+  // Get password if provided
       const password = p2pPassword.value;
+  // If envelope is present and password provided, we will encrypt the textual payload (envelope+base64)
       log('Got password for transfer', { hasPassword: !!password });
       
       // Split data into chunks based on selected size
-      p2pChunks = splitIntoChunks(data, password);
+  p2pChunks = splitIntoChunks(data, password);
       log('Split data into chunks', { numChunks: p2pChunks ? p2pChunks.length : 0 });
       
       if (!p2pChunks || p2pChunks.length === 0) {
@@ -1663,7 +1898,8 @@ function startTransfer() {
         dataLength: data.length,
         chunks: p2pChunks.length,
         hasPassword: !!password,
-        firstChunkSize: p2pChunks[0].length
+        firstChunkSize: p2pChunks[0].length,
+        fileMeta: p2pSelectedFileMeta || null
       });
       
       // Update UI
@@ -2624,7 +2860,7 @@ function updatePartialReceivedData() {
       chunkLog.value += '\n--- CHUNK DETAILS ---\n' + logData;
     }
     
-    // For all chunk counts, build the actual data display
+  // For all chunk counts, build the actual data display
     // Identify contiguous ranges of chunks
     const receivedRanges = [];
     let currentRange = { start: null, end: null };
@@ -2668,6 +2904,14 @@ function updatePartialReceivedData() {
       }
     }
     
+    // If partial data forms a file envelope without encryption, indicate preview and show a save hint
+    const maybeEnv = parseFileEnvelope(partialData);
+    if (maybeEnv) {
+      receivedData.value = partialData.substring(0, 200) + (partialData.length > 200 ? '...\n[Receiving file data...]' : '');
+      chunkLog.value += `\n[Detected file envelope: ${maybeEnv.name} (${formatBytes(maybeEnv.size)})]`;
+      downloadReceivedBtn.textContent = 'Save File';
+    }
+
     // Special handling for encrypted data
     if (isEncrypted && p2pReceivePassword.value) {
       try {
@@ -2846,6 +3090,14 @@ async function assembleAndDecryptData(isFinalAssembly = false) {
       }
     }
     
+    // If the combined (and possibly decrypted) data is a file envelope, surface file info
+    const env = parseFileEnvelope(finalData);
+    if (env) {
+      receivedFileMeta = { name: env.name, type: env.type, size: env.size };
+      chunkLog.value += `\n[File detected: ${env.name} (${formatBytes(env.size)})]`;
+      downloadReceivedBtn.textContent = 'Save File';
+    }
+
     // Display the data
     if (isFinalAssembly) {
       // For final assembly, show the complete data and mark as done
@@ -2860,9 +3112,9 @@ async function assembleAndDecryptData(isFinalAssembly = false) {
       chunkLog.value += `MD5 checksum: ${md5Hash}\n`;
       chunkLog.value += `Completed at: ${new Date().toLocaleTimeString()}\n`;
       
-      log('Data successfully assembled and decoded', {size: finalData.length});
+  log('Data successfully assembled and decoded', {size: finalData.length, file: receivedFileMeta || null});
       
-      // Make both download buttons visible and prominent
+  // Make both download buttons visible and prominent
       downloadReceivedBtn.style.display = 'inline-block';
       downloadRawLogBtn.style.display = 'inline-block';
       

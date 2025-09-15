@@ -35,6 +35,7 @@ For files larger than a single QR code can handle:
     Data is automatically split into multiple chunks
     Each chunk includes position information and an MD5 checksum
     Use the P2P Transfer mode to transfer large files between devices
+    NEW: Send ZIP and other binary files via P2P. Non-text files are wrapped in a base64 envelope with filename and type metadata, optionally encrypted with your password, and reassembled on the receiver where you can save the original file.
 
 Tips for Best Results
 

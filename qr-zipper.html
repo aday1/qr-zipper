@@ -170,11 +170,16 @@
           <button class="btn btn-secondary" id="manual-nav" style="display: none;">Manual Navigation</button>
         </div>
         
-        <div class="file-drop-area" id="p2p-file-drop">
-          <p>Drag & drop a text file here or</p>
+          <div class="file-drop-area" id="p2p-file-drop">
+          <p>Drag & drop a file here (text or .zip) or</p>
           <button class="btn btn-secondary" id="p2p-file-select-btn">Select File</button>
-          <input type="file" id="p2p-file-input" class="file-input" accept=".txt,.json,.csv,.md,.html,.css,.js">
+          <input type="file" id="p2p-file-input" class="file-input" accept=".txt,.json,.csv,.md,.html,.css,.js,.zip">
         </div>
+
+          <div class="button-group">
+            <button class="btn btn-secondary" id="download-sample-zip">Download sample.zip</button>
+            <button class="btn btn-secondary" id="load-sample-zip">Load sample.zip into sender</button>
+          </div>
         
         <div class="form-group">
           <label for="p2p-input">Text to Transfer:</label>
